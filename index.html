@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Who Saw Me? — a hide-and-seek game</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #111;
+    }
+    #game-canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    #ui-root {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    #ui-root button, #ui-root input {
+      pointer-events: auto;
+    }
+
+    #lobby-screen {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 10, 20, 0.85);
+    }
+    .lobby-panel {
+      background: #1c1c26;
+      padding: 32px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 280px;
+      color: white;
+    }
+    .lobby-panel h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      text-align: center;
+    }
+    .lobby-panel input {
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #444;
+      background: #2a2a36;
+      color: white;
+    }
+    .lobby-panel button {
+      padding: 10px;
+      border-radius: 6px;
+      border: none;
+      background: #4c8bf5;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .join-row {
+      display: flex;
+      gap: 8px;
+    }
+    .join-row input {
+      flex: 1;
+    }
+    #player-list {
+      font-size: 14px;
+      color: #ccc;
+    }
+    #lobby-status {
+      font-size: 13px;
+      color: #8ab4ff;
+      text-align: center;
+      min-height: 16px;
+    }
+
+    #game-hud {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      color: white;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    }
+    #timer-display {
+      font-size: 32px;
+      font-weight: 700;
+    }
+    #phase-banner {
+      font-size: 16px;
+      margin-bottom: 4px;
+    }
+    #role-indicator {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      margin-top: 4px;
+    }
+    .role-hider { color: #6be675; }
+    .role-seeker { color: #ff6b6b; }
+
+    #paint-toolbar {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20,20,28,0.9);
+      padding: 10px 16px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: white;
+      font-size: 13px;
+    }
+    .tool-btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid #444;
+      background: #2a2a36;
+      color: white;
+      cursor: pointer;
+    }
+    .tool-btn.active {
+      background: #4c8bf5;
+      border-color: #4c8bf5;
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- Point this at your deployed Render WebSocket server before shipping -->
+  <script>
+    window.WHOSAWME_SERVER_URL = 'ws://localhost:8080';
+  </script>
+
+  <canvas id="game-canvas"></canvas>
+  <div id="ui-root"></div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
