@@ -141,6 +141,20 @@ export class Game {
     this.hud.onBrushSizeChange((size) => this.paintSystem.setBrushSize(size));
 
     this._bindPaintInput();
+    this._bindTouchControls();
+  }
+
+  _bindTouchControls() {
+    this.hud.showTouchControls(true);
+    this.hud.bindTouchControls({
+      onMove: (x, y) => this.localController.setTouchMove(x, y),
+      onLookDelta: (dx) => {
+        this.localController.setYaw(this.localController.yaw - dx * 0.005);
+      },
+      onJump: () => this.localController.setTouchJump(),
+      onSprint: (active) => this.localController.setTouchSprint(active),
+      onCrouch: (active) => this.localController.setTouchCrouch(active),
+    });
   }
 
   _bindPaintInput() {
@@ -175,9 +189,11 @@ export class Game {
       this.hud.showGameHUD();
       this.hud.setPhaseBanner('Preparation Phase — hide and camouflage!');
       this.hud.showPaintToolbar(this.localRole === 'hider');
+      this.hud.setLookZoneEnabled(false);
     } else if (phase === GamePhase.HUNT) {
       this.hud.setPhaseBanner('Hunt Phase — seekers are loose!');
       this.hud.showPaintToolbar(false);
+      this.hud.setLookZoneEnabled(true);
     } else if (phase === GamePhase.END) {
       this.hud.showPaintToolbar(false);
     } else if (phase === GamePhase.LOBBY) {
