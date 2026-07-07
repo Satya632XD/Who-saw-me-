@@ -32,6 +32,11 @@ export class PlayerController {
     this.isGrounded = true;
     this.verticalVelocity = 0;
 
+    // Touch joystick state: moveVector is a normalized -1..1 x/y from the
+    // on-screen stick, used instead of the boolean WASD keys when active.
+    this.touchMoveVector = { x: 0, y: 0 };
+    this.touchActive = false;
+
     this._bindInput();
   }
 
@@ -63,6 +68,26 @@ export class PlayerController {
     });
   }
 
+  // Called by the on-screen joystick UI with a normalized vector
+  // (x: -1 left..1 right, y: -1 back..1 forward).
+  setTouchMove(x, y) {
+    this.touchMoveVector.x = x;
+    this.touchMoveVector.y = y;
+    this.touchActive = (x !== 0 || y !== 0);
+  }
+
+  setTouchJump() {
+    this.keys.jump = true;
+  }
+
+  setTouchSprint(active) {
+    this.keys.sprint = active;
+  }
+
+  setTouchCrouch(active) {
+    this.keys.crouch = active;
+  }
+
   setYaw(yaw) {
     this.yaw = yaw;
   }
@@ -83,6 +108,12 @@ export class PlayerController {
     if (this.keys.right) moveDir.add(right);
     if (this.keys.left) moveDir.sub(right);
 
+    // Touch joystick: y is forward/back push, x is left/right push.
+    if (this.touchActive) {
+      moveDir.add(forward.clone().multiplyScalar(this.touchMoveVector.y));
+      moveDir.add(right.clone().multiplyScalar(this.touchMoveVector.x));
+    }
+
     if (moveDir.lengthSq() > 0) {
       moveDir.normalize().multiplyScalar(speed * deltaSeconds);
       const nextPosition = this.position.clone().add(moveDir);
@@ -96,6 +127,7 @@ export class PlayerController {
       this.verticalVelocity = JUMP_VELOCITY;
       this.isGrounded = false;
     }
+    this.keys.jump = false;
     this.verticalVelocity += GRAVITY * deltaSeconds;
     this.position.y += this.verticalVelocity * deltaSeconds;
 
