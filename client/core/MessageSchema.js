@@ -55,4 +55,4 @@ function parseMessage(raw) {
   }
 }
 
-module.exports = { MessageType, GamePhase, Role, makeMessage, parseMessage };
+export { MessageType, GamePhase, Role, makeMessage, parseMessage };
