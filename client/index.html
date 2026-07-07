@@ -159,6 +159,21 @@
   <canvas id="game-canvas"></canvas>
   <div id="ui-root"></div>
 
+  <div id="debug-error-overlay" style="display:none; position:fixed; inset:0; z-index:99999; background:#1a0000; color:#ff6b6b; font-family:monospace; font-size:13px; padding:16px; overflow:auto; white-space:pre-wrap;"></div>
+  <script>
+    function showDebugError(msg) {
+      const el = document.getElementById('debug-error-overlay');
+      el.style.display = 'block';
+      el.textContent += msg + '\n\n';
+    }
+    window.addEventListener('error', (e) => {
+      showDebugError('ERROR: ' + e.message + '\nat ' + e.filename + ':' + e.lineno + ':' + e.colno + '\n' + (e.error && e.error.stack ? e.error.stack : ''));
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      showDebugError('UNHANDLED PROMISE REJECTION: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+    });
+  </script>
+
   <script type="module" src="./main.js"></script>
 </body>
 </html>
