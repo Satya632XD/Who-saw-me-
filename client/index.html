@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Who Saw Me? — a hide-and-seek game</title>
   <style>
     html, body {
@@ -13,6 +13,10 @@
       height: 100%;
       font-family: system-ui, -apple-system, sans-serif;
       background: #111;
+      touch-action: none;
+      overscroll-behavior: none;
+      position: fixed;
+      inset: 0;
     }
     #game-canvas {
       display: block;
@@ -27,7 +31,7 @@
       height: 100%;
       pointer-events: none;
     }
-    #ui-root button, #ui-root input {
+    #ui-root button, #ui-root input, #touch-controls {
       pointer-events: auto;
     }
 
