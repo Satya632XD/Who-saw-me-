@@ -160,16 +160,41 @@ export class HUD {
     this.paintToolbar = document.createElement('div');
     this.paintToolbar.id = 'paint-toolbar';
     this.paintToolbar.style.display = 'none';
+    this.paintToolbar.style.flexDirection = 'column';
+    this.paintToolbar.style.gap = '8px';
     this.paintToolbar.innerHTML = `
-      <button data-tool="brush" class="tool-btn active">Brush</button>
-      <button data-tool="fill" class="tool-btn">Fill</button>
-      <button data-tool="eyedropper" class="tool-btn">Eyedropper</button>
-      <input id="color-picker" type="color" value="#ffffff" />
-      <input id="brush-size" type="range" min="4" max="60" value="18" />
-      <label>Metalness <input id="metalness-slider" type="range" min="0" max="1" step="0.01" value="0" /></label>
-      <label>Roughness <input id="roughness-slider" type="range" min="0" max="1" step="0.01" value="0.8" /></label>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button data-tool="brush" class="tool-btn active">Brush</button>
+        <button data-tool="fill" class="tool-btn">Fill</button>
+        <button data-tool="eyedropper" class="tool-btn">Eyedropper</button>
+        <input id="color-picker" type="color" value="#ffffff" />
+        <input id="brush-size" type="range" min="4" max="60" value="18" />
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <label>Metalness <input id="metalness-slider" type="range" min="0" max="1" step="0.01" value="0" /></label>
+        <label>Roughness <input id="roughness-slider" type="range" min="0" max="1" step="0.01" value="0.8" /></label>
+      </div>
+      <div id="pose-row" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        <span style="font-size:12px; color:#aaa;">Pose:</span>
+        <button data-pose="standing" class="tool-btn pose-btn active">Stand</button>
+        <button data-pose="sitting" class="tool-btn pose-btn">Sit</button>
+        <button data-pose="kneeling" class="tool-btn pose-btn">Kneel</button>
+        <button data-pose="laying" class="tool-btn pose-btn">Lay</button>
+        <button data-pose="curled" class="tool-btn pose-btn">Curl</button>
+        <button data-pose="crawling" class="tool-btn pose-btn">Crawl</button>
+      </div>
     `;
     this.root.appendChild(this.paintToolbar);
+  }
+
+  onPoseChange(callback) {
+    this.paintToolbar.querySelectorAll('.pose-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.paintToolbar.querySelectorAll('.pose-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        callback(btn.dataset.pose);
+      });
+    });
   }
 
   showLobby() {
