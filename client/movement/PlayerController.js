@@ -28,6 +28,7 @@ export class PlayerController {
       crouch: false,
       jump: false,
     };
+    this.poseLocked = false;
 
     this.isGrounded = true;
     this.verticalVelocity = 0;
@@ -88,6 +89,13 @@ export class PlayerController {
     this.keys.crouch = active;
   }
 
+  // While locked into a non-standing pose (sitting, laying, curled, etc.)
+  // during prep, we still allow slow repositioning but suppress the
+  // crouch auto-pose-swap so the chosen pose doesn't get overridden.
+  setPoseLocked(locked) {
+    this.poseLocked = locked;
+  }
+
   setYaw(yaw) {
     this.yaw = yaw;
   }
@@ -137,7 +145,9 @@ export class PlayerController {
       this.isGrounded = true;
     }
 
-    this.mesh.setCrouching(this.keys.crouch);
+    if (!this.poseLocked) {
+      this.mesh.setCrouching(this.keys.crouch);
+    }
     this.mesh.getObject3D().position.copy(this.position);
     this.mesh.getObject3D().rotation.y = this.yaw;
   }
