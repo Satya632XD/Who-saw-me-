@@ -139,6 +139,13 @@ export class Game {
     this.hud.onToolChange((tool) => this.paintSystem.setTool(tool));
     this.hud.onColorChange((hex) => this.paintSystem.setBrushColor(hex));
     this.hud.onBrushSizeChange((size) => this.paintSystem.setBrushSize(size));
+    this.hud.onPoseChange((poseName) => {
+      this.localMesh.setPose(poseName);
+      // Locking a pose during prep should also freeze normal locomotion
+      // input for standing-only poses so the character doesn't visually
+      // fight the pose while still being able to slide around hidden.
+      this.localController.setPoseLocked(poseName !== 'standing');
+    });
 
     this._bindPaintInput();
     this._bindTouchControls();
@@ -176,7 +183,7 @@ export class Game {
       }
 
       const selfHit = this.paintSystem.raycastFromScreen(
-        ndcX, ndcY, [this.localMesh.torso, this.localMesh.head], this.sceneManager.camera
+        ndcX, ndcY, this.localMesh.getPaintableMeshes(), this.sceneManager.camera
       );
       if (selfHit && selfHit.uv) {
         this.paintSystem.handlePaintInputOnSelf(selfHit.uv);
@@ -202,6 +209,13 @@ export class Game {
   }
 
   _updateRemotePlayer(payload) {
+    // The server broadcasts state for every player including ourselves;
+    // skip it here since our own mesh is already driven locally by
+    // localController for zero-latency movement. Without this check a
+    // second "ghost" copy of the local player spawns and desyncs from
+    // the real one whenever position updates lag behind local prediction.
+    if (payload.playerId === this.localPlayerId) return;
+
     let remote = this.remotePlayers.get(payload.playerId);
     if (!remote) {
       const mesh = new PlayerMesh();
