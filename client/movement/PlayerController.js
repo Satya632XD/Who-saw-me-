@@ -30,6 +30,10 @@ export class PlayerController {
     };
     this.poseLocked = false;
 
+    // When true, all movement/jump input is ignored — used to freeze
+    // seekers during the Prep phase while hiders are still free to move.
+    this.movementLocked = false;
+
     this.isGrounded = true;
     this.verticalVelocity = 0;
 
@@ -100,6 +104,12 @@ export class PlayerController {
     this.yaw = yaw;
   }
 
+  // Freezes/unfreezes all movement and jump input. Used to keep seekers
+  // locked in place during Prep while hiders move freely.
+  setMovementLocked(locked) {
+    this.movementLocked = locked;
+  }
+
   update(deltaSeconds, colliders = []) {
     const speed = this.keys.crouch
       ? CROUCH_SPEED
@@ -111,15 +121,17 @@ export class PlayerController {
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
     const moveDir = new THREE.Vector3();
-    if (this.keys.forward) moveDir.add(forward);
-    if (this.keys.backward) moveDir.sub(forward);
-    if (this.keys.right) moveDir.add(right);
-    if (this.keys.left) moveDir.sub(right);
+    if (!this.movementLocked) {
+      if (this.keys.forward) moveDir.add(forward);
+      if (this.keys.backward) moveDir.sub(forward);
+      if (this.keys.right) moveDir.add(right);
+      if (this.keys.left) moveDir.sub(right);
 
-    // Touch joystick: y is forward/back push, x is left/right push.
-    if (this.touchActive) {
-      moveDir.add(forward.clone().multiplyScalar(this.touchMoveVector.y));
-      moveDir.add(right.clone().multiplyScalar(this.touchMoveVector.x));
+      // Touch joystick: y is forward/back push, x is left/right push.
+      if (this.touchActive) {
+        moveDir.add(forward.clone().multiplyScalar(this.touchMoveVector.y));
+        moveDir.add(right.clone().multiplyScalar(this.touchMoveVector.x));
+      }
     }
 
     if (moveDir.lengthSq() > 0) {
@@ -131,7 +143,7 @@ export class PlayerController {
     }
 
     // Jump / gravity
-    if (this.isGrounded && this.keys.jump) {
+    if (this.isGrounded && this.keys.jump && !this.movementLocked) {
       this.verticalVelocity = JUMP_VELOCITY;
       this.isGrounded = false;
     }
