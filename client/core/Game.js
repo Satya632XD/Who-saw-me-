@@ -90,11 +90,13 @@ export class Game {
     this.network.on(MessageType.ROLE_ASSIGNED, (payload) => {
       this.localRole = payload.role;
       this.hud.setRole(this.localRole);
+      this._applyMovementLock();
     });
 
     this.network.on(MessageType.PHASE_CHANGE, (payload) => {
       this.phase = payload.phase;
       this._onPhaseChange(payload.phase);
+      this._applyMovementLock();
     });
 
     this.network.on(MessageType.TIMER_UPDATE, (payload) => {
@@ -127,6 +129,7 @@ export class Game {
     this.localMesh = new PlayerMesh();
     this.sceneManager.scene.add(this.localMesh.getObject3D());
     this.localController = new PlayerController(this.localMesh, this.sceneManager.camera);
+    this._applyMovementLock();
 
     this.paintSystem = new PaintSystem(this.sceneManager, this.localMesh, (stroke) => {
       this.network.send(MessageType.PAINT_UPDATE, { stroke });
@@ -189,6 +192,14 @@ export class Game {
         this.paintSystem.handlePaintInputOnSelf(selfHit.uv);
       }
     });
+  }
+
+  // Seekers are frozen during Prep so hiders can hide undisturbed; every
+  // other role/phase combination allows free movement.
+  _applyMovementLock() {
+    if (!this.localController) return;
+    const shouldLock = this.localRole === 'seeker' && this.phase === GamePhase.PREP;
+    this.localController.setMovementLocked(shouldLock);
   }
 
   _onPhaseChange(phase) {
