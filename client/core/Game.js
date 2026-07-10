@@ -91,12 +91,18 @@ export class Game {
       this.localRole = payload.role;
       this.hud.setRole(this.localRole);
       this._applyMovementLock();
+      this._applyWeaponVisibility();
+      if (this.localMesh) {
+        if (this.localRole === 'seeker') this.localMesh.attachGun();
+        else this.localMesh.removeGun();
+      }
     });
 
     this.network.on(MessageType.PHASE_CHANGE, (payload) => {
       this.phase = payload.phase;
       this._onPhaseChange(payload.phase);
       this._applyMovementLock();
+      this._applyWeaponVisibility();
     });
 
     this.network.on(MessageType.TIMER_UPDATE, (payload) => {
@@ -117,6 +123,14 @@ export class Game {
     this.network.on(MessageType.TAG_RESULT, (payload) => {
       if (payload.targetId === this.localPlayerId && payload.success) {
         this.hud.setPhaseBanner('You were tagged!');
+        if (this.localMesh) this.localMesh.getObject3D().visible = false;
+      }
+      if (payload.success) {
+        const remote = this.remotePlayers.get(payload.targetId);
+        if (remote) {
+          remote.mesh.getObject3D().visible = false;
+          remote.eliminated = true;
+        }
       }
     });
 
@@ -166,6 +180,7 @@ export class Game {
       onSprint: (active) => this.localController.setTouchSprint(active),
       onCrouch: (active) => this.localController.setTouchCrouch(active),
       onCameraToggle: () => this.localController.toggleCameraMode(),
+      onShoot: () => this._shoot(),
     });
 
     // Desktop/mouse-drag look support, so the same build can be previewed
@@ -226,6 +241,12 @@ export class Game {
     this.localController.setMovementLocked(shouldLock);
   }
 
+  // Shoot button + crosshair only make sense for a seeker during Hunt.
+  _applyWeaponVisibility() {
+    const visible = this.localRole === 'seeker' && this.phase === GamePhase.HUNT;
+    this.hud.setWeaponUIVisible(visible);
+  }
+
   _onPhaseChange(phase) {
     if (phase === GamePhase.PREP) {
       this.hud.showGameHUD();
@@ -240,6 +261,11 @@ export class Game {
       this.hud.showPaintToolbar(false);
     } else if (phase === GamePhase.LOBBY) {
       this.hud.showLobby();
+      if (this.localMesh) this.localMesh.getObject3D().visible = true;
+      for (const remote of this.remotePlayers.values()) {
+        remote.mesh.getObject3D().visible = true;
+        remote.eliminated = false;
+      }
     }
   }
 
@@ -267,6 +293,33 @@ export class Game {
   _attemptTag(targetPlayerId) {
     if (this.localRole !== 'seeker' || this.phase !== GamePhase.HUNT) return;
     this.network.send(MessageType.TAG_ATTEMPT, { targetId: targetPlayerId });
+  }
+
+  // Fires the seeker's paintball gun: raycasts from screen center outward
+  // and, on hitting a live remote player's mesh, sends a tag attempt. The
+  // server re-validates range authoritatively, so this only needs to be
+  // roughly accurate — it can't be spoofed into an actual elimination.
+  _shoot() {
+    if (this.localRole !== 'seeker' || this.phase !== GamePhase.HUNT) return;
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera({ x: 0, y: 0 }, this.sceneManager.camera);
+
+    let closestHit = null;
+    let closestDist = Infinity;
+    for (const [playerId, remote] of this.remotePlayers) {
+      if (remote.eliminated) continue;
+      const hits = raycaster.intersectObject(remote.mesh.getObject3D(), true);
+      if (hits.length > 0 && hits[0].distance < closestDist) {
+        closestDist = hits[0].distance;
+        closestHit = playerId;
+      }
+    }
+
+    this.hud.flashCrosshair(!!closestHit);
+    if (closestHit) {
+      this._attemptTag(closestHit);
+    }
   }
 
   _loop = () => {
