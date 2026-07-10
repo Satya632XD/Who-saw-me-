@@ -158,12 +158,36 @@ export class Game {
     this.hud.showTouchControls(true);
     this.hud.bindTouchControls({
       onMove: (x, y) => this.localController.setTouchMove(x, y),
-      onLookDelta: (dx) => {
+      onLookDelta: (dx, dy) => {
         this.localController.setYaw(this.localController.yaw - dx * 0.005);
+        this.localController.addPitch(-dy * 0.005);
       },
       onJump: () => this.localController.setTouchJump(),
       onSprint: (active) => this.localController.setTouchSprint(active),
       onCrouch: (active) => this.localController.setTouchCrouch(active),
+      onCameraToggle: () => this.localController.toggleCameraMode(),
+    });
+
+    // Desktop/mouse-drag look support, so the same build can be previewed
+    // in a regular browser without touch input. Drag anywhere on the
+    // canvas (outside the paint-click flow) to look around.
+    let dragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+    this.canvas.addEventListener('mousedown', (e) => {
+      dragging = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - lastMouseX;
+      const dy = e.clientY - lastMouseY;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      this.localController.setYaw(this.localController.yaw - dx * 0.005);
+      this.localController.addPitch(-dy * 0.005);
     });
   }
 
@@ -260,14 +284,40 @@ export class Game {
         this.network.send(MessageType.PLAYER_STATE, this.localController.getState());
       }
 
-      // Simple third-person-ish camera follow.
+      // Camera follow: third-person orbits behind+above the character;
+      // first-person sits at head height and looks wherever yaw/pitch point.
       const targetPos = this.localController.position;
-      this.sceneManager.camera.position.set(
-        targetPos.x - Math.sin(this.localController.yaw) * 8,
-        targetPos.y + 4,
-        targetPos.z - Math.cos(this.localController.yaw) * 8
-      );
-      this.sceneManager.camera.lookAt(targetPos.x, targetPos.y + 1.2, targetPos.z);
+      const yaw = this.localController.yaw;
+      const pitch = this.localController.pitch;
+      const headHeight = 1.6;
+
+      if (this.localController.cameraMode === 'first') {
+        // Hiding the local mesh in first-person also removes it from
+        // raycasts, so self-painting (Prep phase) should be done in
+        // third-person. This matches most FPS games' convention.
+        this.localMesh.getObject3D().visible = false;
+        const camPos = new THREE.Vector3(targetPos.x, targetPos.y + headHeight, targetPos.z);
+        this.sceneManager.camera.position.copy(camPos);
+        const lookDir = new THREE.Vector3(
+          Math.sin(yaw) * Math.cos(pitch),
+          Math.sin(pitch),
+          Math.cos(yaw) * Math.cos(pitch)
+        );
+        this.sceneManager.camera.lookAt(camPos.clone().add(lookDir));
+      } else {
+        this.localMesh.getObject3D().visible = true;
+        const distance = 8;
+        // Pitch pulls the camera up/down and in/out along the orbit so
+        // looking up tilts the view up instead of just spinning flatly.
+        const horizontalDist = distance * Math.cos(pitch);
+        const height = targetPos.y + 4 + distance * Math.sin(pitch);
+        this.sceneManager.camera.position.set(
+          targetPos.x - Math.sin(yaw) * horizontalDist,
+          height,
+          targetPos.z - Math.cos(yaw) * horizontalDist
+        );
+        this.sceneManager.camera.lookAt(targetPos.x, targetPos.y + 1.2, targetPos.z);
+      }
     }
 
     this.sceneManager.render();
