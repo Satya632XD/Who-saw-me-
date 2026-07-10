@@ -13,8 +13,8 @@ export class PlayerController {
     this.camera = camera;
     this.velocity = new THREE.Vector3();
     this.position = new THREE.Vector3(0, GROUND_Y, 0);
-    this.cameraYaw = 0;          // horizontal orbit angle
-    this.cameraPitch = 0.3;      // slight downward default
+    this.cameraYaw = 0;
+    this.cameraPitch = 0.3;
     this.PITCH_LIMIT = Math.PI / 2 - 0.05;
     this.cameraMode = 'third';
     this.keys = {
@@ -27,6 +27,7 @@ export class PlayerController {
     this.verticalVelocity = 0;
     this.touchMoveVector = { x: 0, y: 0 };
     this.touchActive = false;
+    this.currentPose = 'standing';
     this._bindInput();
   }
 
@@ -71,11 +72,9 @@ export class PlayerController {
   setMovementLocked(locked) { this.movementLocked = locked; }
 
   update(deltaSeconds, colliders = []) {
-    const speed = this.keys.crouch
-      ? CROUCH_SPEED
-      : this.keys.sprint ? SPRINT_SPEED : WALK_SPEED;
+    const speed = this.keys.crouch ? CROUCH_SPEED : this.keys.sprint ? SPRINT_SPEED : WALK_SPEED;
 
-    // Forward and right relative to camera view
+    // Movement relative to camera yaw
     const forward = new THREE.Vector3(Math.sin(this.cameraYaw), 0, Math.cos(this.cameraYaw));
     const right = new THREE.Vector3(Math.cos(this.cameraYaw), 0, -Math.sin(this.cameraYaw));
 
@@ -101,7 +100,6 @@ export class PlayerController {
     }
     this.mesh.updateWalkCycle(deltaSeconds, wasMoving ? speed / SPRINT_SPEED : 0);
 
-    // Jump / gravity
     if (this.isGrounded && this.keys.jump && !this.movementLocked) {
       this.verticalVelocity = JUMP_VELOCITY;
       this.isGrounded = false;
@@ -118,10 +116,14 @@ export class PlayerController {
 
     if (!this.poseLocked) {
       this.mesh.setCrouching(this.keys.crouch);
+      this.currentPose = this.keys.crouch ? 'kneeling' : 'standing';
+    } else {
+      // Keep the pose locked; don't change
     }
-    // Face the movement direction or camera direction
-    this.mesh.getObject3D().rotation.y = wasMoving ? Math.atan2(moveDir.x, moveDir.z) : this.cameraYaw;
     this.mesh.getObject3D().position.copy(this.position);
+    // Face the direction of movement, or keep looking where camera points if still
+    const targetYaw = wasMoving ? Math.atan2(moveDir.x, moveDir.z) : this.cameraYaw;
+    this.mesh.getObject3D().rotation.y = targetYaw;
   }
 
   _collides(nextPosition, colliders) {
@@ -139,6 +141,7 @@ export class PlayerController {
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
       rotation: this.mesh.getObject3D().rotation.y,
       crouching: this.keys.crouch,
+      pose: this.currentPose,
     };
   }
 }
