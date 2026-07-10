@@ -18,6 +18,14 @@ export class PlayerController {
     this.velocity = new THREE.Vector3();
     this.position = new THREE.Vector3(0, GROUND_Y, 0);
     this.yaw = 0;
+    // Pitch is vertical look angle in radians, clamped so the camera can't
+    // flip past straight up/down. 0 = looking level.
+    this.pitch = 0;
+    this.PITCH_LIMIT = Math.PI / 2 - 0.05;
+
+    // 'third' = follow-cam behind the character. 'first' = camera at the
+    // character's head, character mesh hidden from its own view.
+    this.cameraMode = 'third';
 
     this.keys = {
       forward: false,
@@ -104,6 +112,21 @@ export class PlayerController {
     this.yaw = yaw;
   }
 
+  // Adjusts pitch by a delta (radians) and clamps it. Positive delta looks
+  // up, negative looks down — matches natural drag-up-to-look-up feel.
+  addPitch(delta) {
+    this.pitch = Math.max(-this.PITCH_LIMIT, Math.min(this.PITCH_LIMIT, this.pitch + delta));
+  }
+
+  setCameraMode(mode) {
+    this.cameraMode = mode === 'first' ? 'first' : 'third';
+  }
+
+  toggleCameraMode() {
+    this.cameraMode = this.cameraMode === 'first' ? 'third' : 'first';
+    return this.cameraMode;
+  }
+
   // Freezes/unfreezes all movement and jump input. Used to keep seekers
   // locked in place during Prep while hiders move freely.
   setMovementLocked(locked) {
@@ -118,7 +141,7 @@ export class PlayerController {
         : WALK_SPEED;
 
     const forward = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
-    const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const right = new THREE.Vector3(-Math.cos(this.yaw), 0, Math.sin(this.yaw));
 
     const moveDir = new THREE.Vector3();
     if (!this.movementLocked) {
