@@ -1,6 +1,6 @@
+
 // HUD.js
-// Manages all DOM overlay UI: lobby form, in-game HUD (timer/role), and
-// the paint toolbar shown during the prep phase.
+// Manages all DOM overlay UI: lobby screen, in-game HUD, and paint controls.
 
 export class HUD {
   constructor(rootEl) {
@@ -34,15 +34,11 @@ export class HUD {
     this.touchControls.style.display = show ? 'block' : 'none';
   }
 
-  // During prep phase we disable the look-drag zone so screen taps reach
-  // the canvas underneath for painting; re-enable it for the hunt phase.
   setLookZoneEnabled(enabled) {
     const lookZone = this.touchControls.querySelector('#look-zone');
     lookZone.style.pointerEvents = enabled ? 'auto' : 'none';
   }
 
-  // Wires the joystick/look/jump/crouch/sprint UI to a PlayerController-like
-  // callback object: { onMove(x,y), onLookDelta(dx,dy), onJump(), onSprint(active), onCrouch(active), onCameraToggle(), onShoot() }
   bindTouchControls({ onMove, onLookDelta, onJump, onSprint, onCrouch, onCameraToggle, onShoot }) {
     const zone = this.touchControls.querySelector('#joystick-zone');
     const stick = this.touchControls.querySelector('#joystick-stick');
@@ -74,7 +70,6 @@ export class HUD {
         dy = Math.sin(angle) * dist;
         stick.style.left = `${35 + dx}px`;
         stick.style.top = `${35 + dy}px`;
-        // Normalize: x right-positive, y forward when dragging up (screen -y).
         onMove(dx / zoneRadius, -dy / zoneRadius);
       }
       e.preventDefault();
@@ -92,7 +87,6 @@ export class HUD {
     zone.addEventListener('touchend', resetJoystick);
     zone.addEventListener('touchcancel', resetJoystick);
 
-    // Look/camera drag zone (right side of screen).
     let lookTouchId = null;
     let lastX = 0;
     let lastY = 0;
@@ -123,10 +117,8 @@ export class HUD {
     });
 
     jumpBtn.addEventListener('touchstart', (e) => { onJump(); e.preventDefault(); }, { passive: false });
-
     sprintBtn.addEventListener('touchstart', (e) => { onSprint(true); e.preventDefault(); }, { passive: false });
     sprintBtn.addEventListener('touchend', (e) => { onSprint(false); e.preventDefault(); }, { passive: false });
-
     crouchBtn.addEventListener('touchstart', (e) => { onCrouch(true); e.preventDefault(); }, { passive: false });
     crouchBtn.addEventListener('touchend', (e) => { onCrouch(false); e.preventDefault(); }, { passive: false });
 
@@ -145,15 +137,11 @@ export class HUD {
     }, { passive: false });
   }
 
-  // Shows/hides the seeker-only shoot button + aiming crosshair. Call with
-  // true only when localRole === 'seeker' && phase === 'HUNT'.
   setWeaponUIVisible(visible) {
     this.touchControls.querySelector('#shoot-btn').style.display = visible ? 'block' : 'none';
     this.touchControls.querySelector('#crosshair').style.display = visible ? 'block' : 'none';
   }
 
-  // Briefly recolors the crosshair green on a hit, red on a miss, then
-  // reverts — quick shot feedback without needing a full hit-marker system.
   flashCrosshair(hit) {
     const crosshair = this.touchControls.querySelector('#crosshair');
     const color = hit ? 'rgba(80,220,80,0.9)' : 'rgba(220,80,80,0.9)';
@@ -189,6 +177,7 @@ export class HUD {
     this.gameHUD.id = 'game-hud';
     this.gameHUD.style.display = 'none';
     this.gameHUD.innerHTML = `
+      <button id="paint-toggle-btn" style="display:none; margin:0 auto 8px; padding:8px 12px; border-radius:999px; border:none; background:rgba(30,40,55,0.88); color:white; font-size:12px; font-weight:800;">Paint: OFF</button>
       <div id="phase-banner"></div>
       <div id="timer-display">--:--</div>
       <div id="role-indicator"></div>
@@ -203,14 +192,14 @@ export class HUD {
     this.paintToolbar.style.flexDirection = 'column';
     this.paintToolbar.style.gap = '8px';
     this.paintToolbar.innerHTML = `
-      <div style="display:flex; align-items:center; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         <button data-tool="brush" class="tool-btn active">Brush</button>
         <button data-tool="fill" class="tool-btn">Fill</button>
         <button data-tool="eyedropper" class="tool-btn">Eyedropper</button>
         <input id="color-picker" type="color" value="#ffffff" />
         <input id="brush-size" type="range" min="4" max="60" value="18" />
       </div>
-      <div style="display:flex; align-items:center; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         <label>Metalness <input id="metalness-slider" type="range" min="0" max="1" step="0.01" value="0" /></label>
         <label>Roughness <input id="roughness-slider" type="range" min="0" max="1" step="0.01" value="0.8" /></label>
       </div>
@@ -227,10 +216,24 @@ export class HUD {
     this.root.appendChild(this.paintToolbar);
   }
 
+  bindPaintToggle(callback) {
+    this.gameHUD.querySelector('#paint-toggle-btn').addEventListener('click', () => callback());
+  }
+
+  setPaintToggleState(active) {
+    const btn = this.gameHUD.querySelector('#paint-toggle-btn');
+    btn.textContent = active ? 'Paint: ON' : 'Paint: OFF';
+    btn.classList.toggle('active', active);
+  }
+
+  showPaintToggle(show) {
+    this.gameHUD.querySelector('#paint-toggle-btn').style.display = show ? 'inline-block' : 'none';
+  }
+
   onPoseChange(callback) {
     this.paintToolbar.querySelectorAll('.pose-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        this.paintToolbar.querySelectorAll('.pose-btn').forEach(b => b.classList.remove('active'));
+        this.paintToolbar.querySelectorAll('.pose-btn').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         callback(btn.dataset.pose);
       });
@@ -250,9 +253,7 @@ export class HUD {
 
   setPlayerList(players) {
     const list = this.lobbyScreen.querySelector('#player-list');
-    list.innerHTML = players
-      .map(p => `<div class="player-row">${p.name} ${p.ready ? '✓' : ''}</div>`)
-      .join('');
+    list.innerHTML = players.map(p => `<div class="player-row">${p.name} ${p.ready ? '✓' : ''}</div>`).join('');
   }
 
   setLobbyStatus(text) {
@@ -271,8 +272,7 @@ export class HUD {
     const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
-    this.gameHUD.querySelector('#timer-display').textContent =
-      `${mins}:${secs.toString().padStart(2, '0')}`;
+    this.gameHUD.querySelector('#timer-display').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
   setRole(role) {
@@ -286,14 +286,14 @@ export class HUD {
   }
 
   getActiveTool() {
-    const active = this.paintToolbar.querySelector('.tool-btn.active');
+    const active = this.paintToolbar.querySelector('[data-tool].active');
     return active ? active.dataset.tool : 'brush';
   }
 
   onToolChange(callback) {
-    this.paintToolbar.querySelectorAll('.tool-btn').forEach(btn => {
+    this.paintToolbar.querySelectorAll('[data-tool]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        this.paintToolbar.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+        this.paintToolbar.querySelectorAll('[data-tool]').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         callback(btn.dataset.tool);
       });
@@ -301,15 +301,11 @@ export class HUD {
   }
 
   onColorChange(callback) {
-    this.paintToolbar.querySelector('#color-picker').addEventListener('input', (e) => {
-      callback(e.target.value);
-    });
+    this.paintToolbar.querySelector('#color-picker').addEventListener('input', (e) => callback(e.target.value));
   }
 
   onBrushSizeChange(callback) {
-    this.paintToolbar.querySelector('#brush-size').addEventListener('input', (e) => {
-      callback(parseInt(e.target.value, 10));
-    });
+    this.paintToolbar.querySelector('#brush-size').addEventListener('input', (e) => callback(parseInt(e.target.value, 10)));
   }
 
   setColorPicker(hex) {
@@ -334,8 +330,6 @@ export class HUD {
       const code = this.lobbyScreen.querySelector('#room-code-input').value.trim();
       onJoinRoom(name, code);
     });
-    this.lobbyScreen.querySelector('#ready-btn').addEventListener('click', () => {
-      onReady();
-    });
+    this.lobbyScreen.querySelector('#ready-btn').addEventListener('click', () => onReady());
   }
 }
