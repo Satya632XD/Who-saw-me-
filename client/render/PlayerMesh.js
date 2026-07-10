@@ -20,7 +20,7 @@ const PROPORTIONS = {
   spineLength: 0.5,
   headRadius: 0.16,
   neckLength: 0.08,
-  shoulderWidth: 0.34,
+  shoulderWidth: 0.17,
   hipWidth: 0.19,
   upperArmLength: 0.32,
   lowerArmLength: 0.28,
@@ -209,7 +209,7 @@ export class PlayerMesh {
       const shoulder = new THREE.Group();
       shoulder.position.set(sign * p.shoulderWidth, p.spineLength - 0.05, 0);
       this.spine.add(shoulder);
-      this._jointCap(p.limbRadius, shoulder);
+      this._jointCap(p.limbRadius * 1.4, shoulder);
 
       const upperArm = new THREE.Mesh(
         this._capsule(p.limbRadius, p.upperArmLength), this.material
@@ -305,34 +305,60 @@ export class PlayerMesh {
     return Object.keys(POSES);
   }
 
-  // Attaches a simple paintball-gun mesh to the right hand. Only seekers
-  // carry this; called once after role assignment. Safe to call multiple
-  // times (no-ops if already attached).
+  // Attaches a bold, clearly-visible paintball-gun mesh to the right hand.
+  // Only seekers carry this; called once after role assignment. Safe to
+  // call multiple times (no-ops if already attached).
   attachGun() {
     if (this.gun) return;
     const gunGroup = new THREE.Group();
-    const bodyGeo = new THREE.BoxGeometry(0.06, 0.07, 0.22);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.5, metalness: 0.3 });
+    const bodyGeo = new THREE.BoxGeometry(0.12, 0.14, 0.42);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.4, metalness: 0.5 });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.z = 0.08;
+    body.position.z = 0.16;
     gunGroup.add(body);
 
-    const barrelGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.18, 8);
+    const barrelGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.34, 10);
     const barrel = new THREE.Mesh(barrelGeo, bodyMat);
     barrel.rotation.x = Math.PI / 2;
-    barrel.position.z = 0.22;
+    barrel.position.z = 0.42;
     gunGroup.add(barrel);
 
-    const tankGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.14, 8);
-    const tankMat = new THREE.MeshStandardMaterial({ color: 0xdd4444, roughness: 0.4 });
+    // Bright glowing tip so the muzzle reads clearly even at a distance.
+    const tipGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.03, 10);
+    const tipMat = new THREE.MeshStandardMaterial({
+      color: 0x39ff14, emissive: 0x39ff14, emissiveIntensity: 1.2, roughness: 0.3,
+    });
+    const tip = new THREE.Mesh(tipGeo, tipMat);
+    tip.rotation.x = Math.PI / 2;
+    tip.position.z = 0.6;
+    gunGroup.add(tip);
+
+    const tankGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.26, 10);
+    const tankMat = new THREE.MeshStandardMaterial({ color: 0xff2a6d, roughness: 0.35, metalness: 0.2 });
     const tank = new THREE.Mesh(tankGeo, tankMat);
-    tank.position.set(0, -0.09, 0.02);
+    tank.position.set(0, -0.17, 0.02);
     gunGroup.add(tank);
 
-    gunGroup.position.set(0, -PROPORTIONS.lowerArmLength - 0.05, 0.02);
+    const gripGeo = new THREE.BoxGeometry(0.07, 0.16, 0.08);
+    const grip = new THREE.Mesh(gripGeo, bodyMat);
+    grip.position.set(0, -0.1, -0.05);
+    gunGroup.add(grip);
+
+    gunGroup.position.set(0, -PROPORTIONS.lowerArmLength - 0.05, 0.05);
     gunGroup.rotation.x = -Math.PI / 2.3;
+    gunGroup.scale.setScalar(1.6);
     this.rightElbow.add(gunGroup);
     this.gun = gunGroup;
+    return gunGroup;
+  }
+
+  // World-space position of the gun's muzzle tip, used to spawn paint
+  // splat effects and as the shot's visual origin.
+  getGunMuzzleWorldPosition() {
+    if (!this.gun) return null;
+    const tip = new THREE.Vector3(0, 0, 0.6 * 1.6);
+    this.gun.updateWorldMatrix(true, false);
+    return this.gun.localToWorld(tip);
   }
 
   removeGun() {
