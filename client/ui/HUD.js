@@ -24,6 +24,8 @@ export class HUD {
       <button id="crouch-btn" style="position:absolute; right:24px; bottom:190px; width:56px; height:56px; border-radius:50%; background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.5); color:white; font-size:11px; font-weight:700;">CROUCH</button>
       <button id="sprint-btn" style="position:absolute; right:24px; bottom:40px; width:56px; height:56px; border-radius:50%; background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.5); color:white; font-size:11px; font-weight:700;">SPRINT</button>
       <button id="camera-toggle-btn" style="position:absolute; left:24px; top:24px; padding:8px 14px; border-radius:20px; background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.5); color:white; font-size:12px; font-weight:700; pointer-events:auto;">1ST/3RD</button>
+      <button id="shoot-btn" style="display:none; position:absolute; right:100px; bottom:190px; width:64px; height:64px; border-radius:50%; background:rgba(220,60,60,0.55); border:2px solid rgba(255,255,255,0.6); color:white; font-size:11px; font-weight:700; pointer-events:auto;">SHOOT</button>
+      <div id="crosshair" style="display:none; position:absolute; left:50%; top:50%; width:18px; height:18px; margin:-9px 0 0 -9px; border:2px solid rgba(255,255,255,0.8); border-radius:50%; pointer-events:none;"></div>
     `;
     this.root.appendChild(this.touchControls);
   }
@@ -40,8 +42,8 @@ export class HUD {
   }
 
   // Wires the joystick/look/jump/crouch/sprint UI to a PlayerController-like
-  // callback object: { onMove(x,y), onLookDelta(dx,dy), onJump(), onSprint(active), onCrouch(active), onCameraToggle() }
-  bindTouchControls({ onMove, onLookDelta, onJump, onSprint, onCrouch, onCameraToggle }) {
+  // callback object: { onMove(x,y), onLookDelta(dx,dy), onJump(), onSprint(active), onCrouch(active), onCameraToggle(), onShoot() }
+  bindTouchControls({ onMove, onLookDelta, onJump, onSprint, onCrouch, onCameraToggle, onShoot }) {
     const zone = this.touchControls.querySelector('#joystick-zone');
     const stick = this.touchControls.querySelector('#joystick-stick');
     const lookZone = this.touchControls.querySelector('#look-zone');
@@ -134,6 +136,32 @@ export class HUD {
       e.stopPropagation();
       if (onCameraToggle) onCameraToggle();
     }, { passive: false });
+
+    const shootBtn = this.touchControls.querySelector('#shoot-btn');
+    shootBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (onShoot) onShoot();
+    }, { passive: false });
+  }
+
+  // Shows/hides the seeker-only shoot button + aiming crosshair. Call with
+  // true only when localRole === 'seeker' && phase === 'HUNT'.
+  setWeaponUIVisible(visible) {
+    this.touchControls.querySelector('#shoot-btn').style.display = visible ? 'block' : 'none';
+    this.touchControls.querySelector('#crosshair').style.display = visible ? 'block' : 'none';
+  }
+
+  // Briefly recolors the crosshair green on a hit, red on a miss, then
+  // reverts — quick shot feedback without needing a full hit-marker system.
+  flashCrosshair(hit) {
+    const crosshair = this.touchControls.querySelector('#crosshair');
+    const color = hit ? 'rgba(80,220,80,0.9)' : 'rgba(220,80,80,0.9)';
+    crosshair.style.borderColor = color;
+    clearTimeout(this._crosshairResetTimeout);
+    this._crosshairResetTimeout = setTimeout(() => {
+      crosshair.style.borderColor = 'rgba(255,255,255,0.8)';
+    }, 200);
   }
 
   _buildLobbyScreen() {
