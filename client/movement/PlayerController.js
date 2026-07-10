@@ -1,4 +1,3 @@
-// client/movement/PlayerController.js
 import * as THREE from 'three';
 
 const WALK_SPEED = 4.0;
@@ -14,8 +13,8 @@ export class PlayerController {
     this.camera = camera;
     this.velocity = new THREE.Vector3();
     this.position = new THREE.Vector3(0, GROUND_Y, 0);
-    this.yaw = 0;
-    this.pitch = 0;
+    this.cameraYaw = 0;          // horizontal orbit angle
+    this.cameraPitch = 0.3;      // slight downward default
     this.PITCH_LIMIT = Math.PI / 2 - 0.05;
     this.cameraMode = 'third';
     this.keys = {
@@ -60,9 +59,9 @@ export class PlayerController {
   setTouchSprint(active) { this.keys.sprint = active; }
   setTouchCrouch(active) { this.keys.crouch = active; }
   setPoseLocked(locked) { this.poseLocked = locked; }
-  setYaw(yaw) { this.yaw = yaw; }
-  addPitch(delta) {
-    this.pitch = Math.max(-this.PITCH_LIMIT, Math.min(this.PITCH_LIMIT, this.pitch + delta));
+  addCameraYaw(delta) { this.cameraYaw += delta; }
+  addCameraPitch(delta) {
+    this.cameraPitch = Math.max(-this.PITCH_LIMIT, Math.min(this.PITCH_LIMIT, this.cameraPitch + delta));
   }
   setCameraMode(mode) { this.cameraMode = mode === 'first' ? 'first' : 'third'; }
   toggleCameraMode() {
@@ -76,8 +75,9 @@ export class PlayerController {
       ? CROUCH_SPEED
       : this.keys.sprint ? SPRINT_SPEED : WALK_SPEED;
 
-    const forward = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
-    const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)); // Fixed: right is now correct
+    // Forward and right relative to camera view
+    const forward = new THREE.Vector3(Math.sin(this.cameraYaw), 0, Math.cos(this.cameraYaw));
+    const right = new THREE.Vector3(Math.cos(this.cameraYaw), 0, -Math.sin(this.cameraYaw));
 
     const moveDir = new THREE.Vector3();
     if (!this.movementLocked) {
@@ -101,6 +101,7 @@ export class PlayerController {
     }
     this.mesh.updateWalkCycle(deltaSeconds, wasMoving ? speed / SPRINT_SPEED : 0);
 
+    // Jump / gravity
     if (this.isGrounded && this.keys.jump && !this.movementLocked) {
       this.verticalVelocity = JUMP_VELOCITY;
       this.isGrounded = false;
@@ -118,8 +119,9 @@ export class PlayerController {
     if (!this.poseLocked) {
       this.mesh.setCrouching(this.keys.crouch);
     }
+    // Face the movement direction or camera direction
+    this.mesh.getObject3D().rotation.y = wasMoving ? Math.atan2(moveDir.x, moveDir.z) : this.cameraYaw;
     this.mesh.getObject3D().position.copy(this.position);
-    this.mesh.getObject3D().rotation.y = this.yaw;
   }
 
   _collides(nextPosition, colliders) {
@@ -135,7 +137,7 @@ export class PlayerController {
   getState() {
     return {
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
-      rotation: this.yaw,
+      rotation: this.mesh.getObject3D().rotation.y,
       crouching: this.keys.crouch,
     };
   }
