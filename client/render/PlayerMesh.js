@@ -145,6 +145,7 @@ export class PlayerMesh {
     this.crouching = false;
     this.baseScale = 1;
     this.currentPose = 'standing';
+    this._walkCycleTime = 0;
 
     this._buildBody();
     this.setPose('standing');
@@ -152,6 +153,17 @@ export class PlayerMesh {
 
   _capsule(radius, length) {
     return new THREE.CapsuleGeometry(radius, length, 4, 8);
+  }
+
+  // Small sphere dropped at a joint pivot so two capsule ends meeting
+  // there read as one continuous limb instead of leaving a visible gap.
+  // Sized slightly larger than the abutting limb radius so it fully
+  // covers the seam at any rotation.
+  _jointCap(radius, parentGroup) {
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 10), this.material);
+    cap.castShadow = true;
+    parentGroup.add(cap);
+    return cap;
   }
 
   _buildBody() {
@@ -178,9 +190,14 @@ export class PlayerMesh {
     this.torso.castShadow = true;
     this.spine.add(this.torso);
 
+    // Cap where hips meet torso, and where torso meets neck, so the
+    // waist and throat don't show a hard seam between primitives.
+    this._jointCap(p.torsoRadiusBottom * 0.9, this.hips).position.y = 0.02;
+
     this.neck = new THREE.Group();
     this.neck.position.y = p.spineLength;
     this.spine.add(this.neck);
+    this._jointCap(p.torsoRadiusTop * 0.7, this.neck);
 
     this.head = new THREE.Mesh(new THREE.SphereGeometry(p.headRadius, 16, 16), this.material);
     this.head.position.y = p.neckLength + p.headRadius;
@@ -192,6 +209,7 @@ export class PlayerMesh {
       const shoulder = new THREE.Group();
       shoulder.position.set(sign * p.shoulderWidth, p.spineLength - 0.05, 0);
       this.spine.add(shoulder);
+      this._jointCap(p.limbRadius, shoulder);
 
       const upperArm = new THREE.Mesh(
         this._capsule(p.limbRadius, p.upperArmLength), this.material
@@ -203,6 +221,7 @@ export class PlayerMesh {
       const elbow = new THREE.Group();
       elbow.position.y = -p.upperArmLength;
       shoulder.add(elbow);
+      this._jointCap(p.limbRadius * 0.85, elbow);
 
       const lowerArm = new THREE.Mesh(
         this._capsule(p.limbRadius * 0.85, p.lowerArmLength), this.material
@@ -226,6 +245,7 @@ export class PlayerMesh {
       const hipJoint = new THREE.Group();
       hipJoint.position.set(sign * p.hipWidth, 0, 0);
       this.hips.add(hipJoint);
+      this._jointCap(p.limbRadius * 1.05, hipJoint);
 
       const upperLeg = new THREE.Mesh(
         this._capsule(p.limbRadius * 1.05, p.upperLegLength), this.material
@@ -237,6 +257,7 @@ export class PlayerMesh {
       const knee = new THREE.Group();
       knee.position.y = -p.upperLegLength;
       hipJoint.add(knee);
+      this._jointCap(p.limbRadius * 0.9, knee);
 
       const lowerLeg = new THREE.Mesh(
         this._capsule(p.limbRadius * 0.9, p.lowerLegLength), this.material
@@ -282,6 +303,75 @@ export class PlayerMesh {
 
   getAvailablePoses() {
     return Object.keys(POSES);
+  }
+
+  // Attaches a simple paintball-gun mesh to the right hand. Only seekers
+  // carry this; called once after role assignment. Safe to call multiple
+  // times (no-ops if already attached).
+  attachGun() {
+    if (this.gun) return;
+    const gunGroup = new THREE.Group();
+    const bodyGeo = new THREE.BoxGeometry(0.06, 0.07, 0.22);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.5, metalness: 0.3 });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.z = 0.08;
+    gunGroup.add(body);
+
+    const barrelGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.18, 8);
+    const barrel = new THREE.Mesh(barrelGeo, bodyMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.z = 0.22;
+    gunGroup.add(barrel);
+
+    const tankGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.14, 8);
+    const tankMat = new THREE.MeshStandardMaterial({ color: 0xdd4444, roughness: 0.4 });
+    const tank = new THREE.Mesh(tankGeo, tankMat);
+    tank.position.set(0, -0.09, 0.02);
+    gunGroup.add(tank);
+
+    gunGroup.position.set(0, -PROPORTIONS.lowerArmLength - 0.05, 0.02);
+    gunGroup.rotation.x = -Math.PI / 2.3;
+    this.rightElbow.add(gunGroup);
+    this.gun = gunGroup;
+  }
+
+  removeGun() {
+    if (!this.gun) return;
+    this.rightElbow.remove(this.gun);
+    this.gun = null;
+  }
+
+  // Swings arms/legs opposite each other while moving, and returns to the
+  // pose's rest rotation when standing still. Only animates in the
+  // 'standing' pose — locked hiding poses (sit/kneel/lay/curl/crawl) stay
+  // static so they don't fight the pose's own joint targets.
+  updateWalkCycle(deltaSeconds, speedFraction) {
+    if (this.currentPose !== 'standing') return;
+
+    if (speedFraction > 0.02) {
+      this._walkCycleTime += deltaSeconds * (4 + speedFraction * 4);
+      const swing = Math.sin(this._walkCycleTime) * 0.5 * speedFraction;
+      const counterSwing = Math.sin(this._walkCycleTime + Math.PI) * 0.5 * speedFraction;
+
+      this.leftShoulder.rotation.x = swing;
+      this.rightShoulder.rotation.x = counterSwing;
+      this.leftHip.rotation.x = counterSwing;
+      this.rightHip.rotation.x = swing;
+      // Knees bend slightly on the forward-swing half of each leg's cycle
+      // so the stride doesn't look like a stiff pendulum.
+      this.leftKnee.rotation.x = Math.max(0, -counterSwing) * 1.2;
+      this.rightKnee.rotation.x = Math.max(0, -swing) * 1.2;
+    } else {
+      // Ease back to rest rather than snapping, avoiding a visible pop
+      // the instant movement input stops.
+      const ease = Math.min(1, deltaSeconds * 8);
+      this.leftShoulder.rotation.x *= (1 - ease);
+      this.rightShoulder.rotation.x *= (1 - ease);
+      this.leftHip.rotation.x *= (1 - ease);
+      this.rightHip.rotation.x *= (1 - ease);
+      this.leftKnee.rotation.x *= (1 - ease);
+      this.rightKnee.rotation.x *= (1 - ease);
+    }
   }
 
   setCrouching(crouching) {
