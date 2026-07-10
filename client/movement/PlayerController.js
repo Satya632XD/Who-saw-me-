@@ -157,13 +157,15 @@ export class PlayerController {
       }
     }
 
-    if (moveDir.lengthSq() > 0) {
+    const wasMoving = moveDir.lengthSq() > 0;
+    if (wasMoving) {
       moveDir.normalize().multiplyScalar(speed * deltaSeconds);
       const nextPosition = this.position.clone().add(moveDir);
       if (!this._collides(nextPosition, colliders)) {
         this.position.copy(nextPosition);
       }
     }
+    this.mesh.updateWalkCycle(deltaSeconds, wasMoving ? speed / SPRINT_SPEED : 0);
 
     // Jump / gravity
     if (this.isGrounded && this.keys.jump && !this.movementLocked) {
