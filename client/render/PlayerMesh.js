@@ -1,26 +1,13 @@
-// PlayerMesh.js
-// Builds an original jointed humanoid (hips -> spine/torso -> head,
-// shoulder -> upper/lower arm, hip -> upper/lower leg), all driven by
-// a single shared CanvasTexture that the paint system draws onto for
-// camouflage. Joints are plain THREE.Group hierarchies (not a real
-// bone skeleton) so pose presets are just target-rotation snapshots
-// per joint — enough for lockable hiding poses without needing a
-// rigged/animated skeleton system.
-
 import * as THREE from 'three';
 
 const CANVAS_SIZE = 512;
 
-// Proportions tuned to read as "human-like" without going photoreal:
-// slightly larger head-to-body ratio than realistic (reads better at
-// a distance / on small phone screens), clear shoulder width, distinct
-// hips, two-segment limbs with visible joints.
 const PROPORTIONS = {
   hipsY: 0.95,
   spineLength: 0.5,
   headRadius: 0.16,
   neckLength: 0.08,
-  shoulderWidth: 0.25,
+  shoulderWidth: 0.28,       // widened so arms are clearly outside torso
   hipWidth: 0.19,
   upperArmLength: 0.32,
   lowerArmLength: 0.28,
@@ -31,87 +18,60 @@ const PROPORTIONS = {
   torsoRadiusBottom: 0.16,
 };
 
-// Pose presets: rotation targets (radians) for each joint, keyed by
-// pose name. Only joints listed are touched; unlisted joints hold
-// their current rotation. All poses also set a hipsY offset used to
-// sink/raise the whole rig (e.g. kneeling, laying down).
 const POSES = {
   standing: {
-    hipsYOffset: 0,
-    spine: { x: 0, y: 0, z: 0 },
+    hipsYOffset: 0, spine: { x: 0, y: 0, z: 0 },
     leftShoulder: { x: 0, y: 0, z: 0.05 },
     rightShoulder: { x: 0, y: 0, z: -0.05 },
     leftElbow: { x: 0, y: 0, z: 0 },
     rightElbow: { x: 0, y: 0, z: 0 },
-    leftHip: { x: 0, y: 0, z: 0 },
-    rightHip: { x: 0, y: 0, z: 0 },
-    leftKnee: { x: 0, y: 0, z: 0 },
-    rightKnee: { x: 0, y: 0, z: 0 },
+    leftHip: { x: 0, y: 0, z: 0 }, rightHip: { x: 0, y: 0, z: 0 },
+    leftKnee: { x: 0, y: 0, z: 0 }, rightKnee: { x: 0, y: 0, z: 0 },
     rootRotationX: 0,
   },
   sitting: {
     hipsYOffset: -0.45,
     spine: { x: 0.05, y: 0, z: 0 },
-    leftShoulder: { x: 0.1, y: 0, z: 0.1 },
-    rightShoulder: { x: 0.1, y: 0, z: -0.1 },
-    leftElbow: { x: 0.3, y: 0, z: 0 },
-    rightElbow: { x: 0.3, y: 0, z: 0 },
-    leftHip: { x: -1.5, y: 0, z: 0 },
-    rightHip: { x: -1.5, y: 0, z: 0 },
-    leftKnee: { x: 1.5, y: 0, z: 0 },
-    rightKnee: { x: 1.5, y: 0, z: 0 },
+    leftShoulder: { x: 0.1, y: 0, z: 0.1 }, rightShoulder: { x: 0.1, y: 0, z: -0.1 },
+    leftElbow: { x: 0.3, y: 0, z: 0 }, rightElbow: { x: 0.3, y: 0, z: 0 },
+    leftHip: { x: -1.5, y: 0, z: 0 }, rightHip: { x: -1.5, y: 0, z: 0 },
+    leftKnee: { x: 1.5, y: 0, z: 0 }, rightKnee: { x: 1.5, y: 0, z: 0 },
     rootRotationX: 0,
   },
   kneeling: {
     hipsYOffset: -0.55,
     spine: { x: 0.05, y: 0, z: 0 },
-    leftShoulder: { x: 0.05, y: 0, z: 0.08 },
-    rightShoulder: { x: 0.05, y: 0, z: -0.08 },
-    leftElbow: { x: 0.1, y: 0, z: 0 },
-    rightElbow: { x: 0.1, y: 0, z: 0 },
-    leftHip: { x: -1.9, y: 0, z: 0 },
-    rightHip: { x: -0.3, y: 0, z: 0 },
-    leftKnee: { x: 2.4, y: 0, z: 0 },
-    rightKnee: { x: 2.4, y: 0, z: 0 },
+    leftShoulder: { x: 0.05, y: 0, z: 0.08 }, rightShoulder: { x: 0.05, y: 0, z: -0.08 },
+    leftElbow: { x: 0.1, y: 0, z: 0 }, rightElbow: { x: 0.1, y: 0, z: 0 },
+    leftHip: { x: -1.9, y: 0, z: 0 }, rightHip: { x: -0.3, y: 0, z: 0 },
+    leftKnee: { x: 2.4, y: 0, z: 0 }, rightKnee: { x: 2.4, y: 0, z: 0 },
     rootRotationX: 0,
   },
   laying: {
     hipsYOffset: -0.85,
     spine: { x: 0, y: 0, z: 0 },
-    leftShoulder: { x: 0, y: 0, z: 0.1 },
-    rightShoulder: { x: 0, y: 0, z: -0.1 },
-    leftElbow: { x: 0, y: 0, z: 0 },
-    rightElbow: { x: 0, y: 0, z: 0 },
-    leftHip: { x: 0, y: 0, z: 0 },
-    rightHip: { x: 0, y: 0, z: 0 },
-    leftKnee: { x: 0, y: 0, z: 0 },
-    rightKnee: { x: 0, y: 0, z: 0 },
+    leftShoulder: { x: 0, y: 0, z: 0.1 }, rightShoulder: { x: 0, y: 0, z: -0.1 },
+    leftElbow: { x: 0, y: 0, z: 0 }, rightElbow: { x: 0, y: 0, z: 0 },
+    leftHip: { x: 0, y: 0, z: 0 }, rightHip: { x: 0, y: 0, z: 0 },
+    leftKnee: { x: 0, y: 0, z: 0 }, rightKnee: { x: 0, y: 0, z: 0 },
     rootRotationX: -Math.PI / 2,
   },
   curled: {
     hipsYOffset: -0.8,
     spine: { x: 0.9, y: 0, z: 0 },
-    leftShoulder: { x: 1.2, y: 0, z: 0.3 },
-    rightShoulder: { x: 1.2, y: 0, z: -0.3 },
-    leftElbow: { x: 1.8, y: 0, z: 0 },
-    rightElbow: { x: 1.8, y: 0, z: 0 },
-    leftHip: { x: -2.1, y: 0, z: 0 },
-    rightHip: { x: -2.1, y: 0, z: 0 },
-    leftKnee: { x: 2.3, y: 0, z: 0 },
-    rightKnee: { x: 2.3, y: 0, z: 0 },
+    leftShoulder: { x: 1.2, y: 0, z: 0.3 }, rightShoulder: { x: 1.2, y: 0, z: -0.3 },
+    leftElbow: { x: 1.8, y: 0, z: 0 }, rightElbow: { x: 1.8, y: 0, z: 0 },
+    leftHip: { x: -2.1, y: 0, z: 0 }, rightHip: { x: -2.1, y: 0, z: 0 },
+    leftKnee: { x: 2.3, y: 0, z: 0 }, rightKnee: { x: 2.3, y: 0, z: 0 },
     rootRotationX: -Math.PI / 2,
   },
   crawling: {
     hipsYOffset: -0.55,
     spine: { x: 0.3, y: 0, z: 0 },
-    leftShoulder: { x: -1.4, y: 0, z: 0.15 },
-    rightShoulder: { x: -1.4, y: 0, z: -0.15 },
-    leftElbow: { x: 0.2, y: 0, z: 0 },
-    rightElbow: { x: 0.2, y: 0, z: 0 },
-    leftHip: { x: -1.3, y: 0, z: 0 },
-    rightHip: { x: -1.3, y: 0, z: 0 },
-    leftKnee: { x: 1.6, y: 0, z: 0 },
-    rightKnee: { x: 1.6, y: 0, z: 0 },
+    leftShoulder: { x: -1.4, y: 0, z: 0.15 }, rightShoulder: { x: -1.4, y: 0, z: -0.15 },
+    leftElbow: { x: 0.2, y: 0, z: 0 }, rightElbow: { x: 0.2, y: 0, z: 0 },
+    leftHip: { x: -1.3, y: 0, z: 0 }, rightHip: { x: -1.3, y: 0, z: 0 },
+    leftKnee: { x: 1.6, y: 0, z: 0 }, rightKnee: { x: 1.6, y: 0, z: 0 },
     rootRotationX: 0,
   },
 };
@@ -126,39 +86,24 @@ export class PlayerMesh {
     this.ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
     this.texture = new THREE.CanvasTexture(this.canvas);
-    this.texture.needsUpdate = true;
-
     this.material = new THREE.MeshStandardMaterial({
       map: this.texture,
       roughness: 0.8,
       metalness: 0.0,
     });
 
-    // Root group: this is what PlayerController moves/rotates for
-    // yaw and world position. Poses that reorient the whole body
-    // (e.g. laying down) rotate `this.rig` inside root instead, so
-    // world position/yaw stays independent of pose.
     this.group = new THREE.Group();
     this.rig = new THREE.Group();
     this.group.add(this.rig);
-
     this.crouching = false;
     this.baseScale = 1;
     this.currentPose = 'standing';
     this._walkCycleTime = 0;
-
     this._buildBody();
     this.setPose('standing');
   }
 
-  _capsule(radius, length) {
-    return new THREE.CapsuleGeometry(radius, length, 4, 8);
-  }
-
-  // Small sphere dropped at a joint pivot so two capsule ends meeting
-  // there read as one continuous limb instead of leaving a visible gap.
-  // Sized slightly larger than the abutting limb radius so it fully
-  // covers the seam at any rotation.
+  _capsule(radius, length) { return new THREE.CapsuleGeometry(radius, length, 4, 8); }
   _jointCap(radius, parentGroup) {
     const cap = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 10), this.material);
     cap.castShadow = true;
@@ -168,7 +113,6 @@ export class PlayerMesh {
 
   _buildBody() {
     const p = PROPORTIONS;
-
     this.hips = new THREE.Group();
     this.hips.position.y = p.hipsY;
     this.rig.add(this.hips);
@@ -182,16 +126,12 @@ export class PlayerMesh {
 
     this.spine = new THREE.Group();
     this.hips.add(this.spine);
-    const torsoGeo = new THREE.CylinderGeometry(
-      p.torsoRadiusTop, p.torsoRadiusBottom, p.spineLength, 8
-    );
+    const torsoGeo = new THREE.CylinderGeometry(p.torsoRadiusTop, p.torsoRadiusBottom, p.spineLength, 8);
     this.torso = new THREE.Mesh(torsoGeo, this.material);
     this.torso.position.y = p.spineLength / 2;
     this.torso.castShadow = true;
     this.spine.add(this.torso);
 
-    // Cap where hips meet torso, and where torso meets neck, so the
-    // waist and throat don't show a hard seam between primitives.
     this._jointCap(p.torsoRadiusBottom * 0.9, this.hips).position.y = 0.02;
 
     this.neck = new THREE.Group();
@@ -211,9 +151,7 @@ export class PlayerMesh {
       this.spine.add(shoulder);
       this._jointCap(p.limbRadius * 1.4, shoulder);
 
-      const upperArm = new THREE.Mesh(
-        this._capsule(p.limbRadius, p.upperArmLength), this.material
-      );
+      const upperArm = new THREE.Mesh(this._capsule(p.limbRadius, p.upperArmLength), this.material);
       upperArm.position.y = -p.upperArmLength / 2;
       upperArm.castShadow = true;
       shoulder.add(upperArm);
@@ -223,9 +161,7 @@ export class PlayerMesh {
       shoulder.add(elbow);
       this._jointCap(p.limbRadius * 0.85, elbow);
 
-      const lowerArm = new THREE.Mesh(
-        this._capsule(p.limbRadius * 0.85, p.lowerArmLength), this.material
-      );
+      const lowerArm = new THREE.Mesh(this._capsule(p.limbRadius * 0.85, p.lowerArmLength), this.material);
       lowerArm.position.y = -p.lowerArmLength / 2;
       lowerArm.castShadow = true;
       elbow.add(lowerArm);
@@ -247,9 +183,7 @@ export class PlayerMesh {
       this.hips.add(hipJoint);
       this._jointCap(p.limbRadius * 1.05, hipJoint);
 
-      const upperLeg = new THREE.Mesh(
-        this._capsule(p.limbRadius * 1.05, p.upperLegLength), this.material
-      );
+      const upperLeg = new THREE.Mesh(this._capsule(p.limbRadius * 1.05, p.upperLegLength), this.material);
       upperLeg.position.y = -p.upperLegLength / 2;
       upperLeg.castShadow = true;
       hipJoint.add(upperLeg);
@@ -259,9 +193,7 @@ export class PlayerMesh {
       hipJoint.add(knee);
       this._jointCap(p.limbRadius * 0.9, knee);
 
-      const lowerLeg = new THREE.Mesh(
-        this._capsule(p.limbRadius * 0.9, p.lowerLegLength), this.material
-      );
+      const lowerLeg = new THREE.Mesh(this._capsule(p.limbRadius * 0.9, p.lowerLegLength), this.material);
       lowerLeg.position.y = -p.lowerLegLength / 2;
       lowerLeg.castShadow = true;
       knee.add(lowerLeg);
@@ -281,12 +213,7 @@ export class PlayerMesh {
     const pose = POSES[poseName];
     if (!pose) return;
     this.currentPose = poseName;
-
-    const applyRot = (joint, rot) => {
-      if (!joint || !rot) return;
-      joint.rotation.set(rot.x, rot.y, rot.z);
-    };
-
+    const applyRot = (joint, rot) => { if (joint && rot) joint.rotation.set(rot.x, rot.y, rot.z); };
     applyRot(this.spine, pose.spine);
     applyRot(this.leftShoulder, pose.leftShoulder);
     applyRot(this.rightShoulder, pose.rightShoulder);
@@ -296,54 +223,35 @@ export class PlayerMesh {
     applyRot(this.rightHip, pose.rightHip);
     applyRot(this.leftKnee, pose.leftKnee);
     applyRot(this.rightKnee, pose.rightKnee);
-
     this.hips.position.y = PROPORTIONS.hipsY + pose.hipsYOffset;
     this.rig.rotation.x = pose.rootRotationX || 0;
   }
 
-  getAvailablePoses() {
-    return Object.keys(POSES);
-  }
+  getAvailablePoses() { return Object.keys(POSES); }
 
-  // Attaches a bold, clearly-visible paintball-gun mesh to the right hand.
-  // Only seekers carry this; called once after role assignment. Safe to
-  // call multiple times (no-ops if already attached).
   attachGun() {
     if (this.gun) return;
     const gunGroup = new THREE.Group();
-    const bodyGeo = new THREE.BoxGeometry(0.12, 0.14, 0.42);
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.4, metalness: 0.5 });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.42), bodyMat);
     body.position.z = 0.16;
     gunGroup.add(body);
-
-    const barrelGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.34, 10);
-    const barrel = new THREE.Mesh(barrelGeo, bodyMat);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.34, 10), bodyMat);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.z = 0.42;
     gunGroup.add(barrel);
-
-    // Bright glowing tip so the muzzle reads clearly even at a distance.
-    const tipGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.03, 10);
-    const tipMat = new THREE.MeshStandardMaterial({
-      color: 0x39ff14, emissive: 0x39ff14, emissiveIntensity: 1.2, roughness: 0.3,
-    });
-    const tip = new THREE.Mesh(tipGeo, tipMat);
+    const tipMat = new THREE.MeshStandardMaterial({ color: 0x39ff14, emissive: 0x39ff14, emissiveIntensity: 1.2, roughness: 0.3 });
+    const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.03, 10), tipMat);
     tip.rotation.x = Math.PI / 2;
     tip.position.z = 0.6;
     gunGroup.add(tip);
-
-    const tankGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.26, 10);
-    const tankMat = new THREE.MeshStandardMaterial({ color: 0xff2a6d, roughness: 0.35, metalness: 0.2 });
-    const tank = new THREE.Mesh(tankGeo, tankMat);
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.26, 10),
+      new THREE.MeshStandardMaterial({ color: 0xff2a6d, roughness: 0.35, metalness: 0.2 }));
     tank.position.set(0, -0.17, 0.02);
     gunGroup.add(tank);
-
-    const gripGeo = new THREE.BoxGeometry(0.07, 0.16, 0.08);
-    const grip = new THREE.Mesh(gripGeo, bodyMat);
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.08), bodyMat);
     grip.position.set(0, -0.1, -0.05);
     gunGroup.add(grip);
-
     gunGroup.position.set(0, -PROPORTIONS.lowerArmLength - 0.05, 0.05);
     gunGroup.rotation.x = -Math.PI / 2.3;
     gunGroup.scale.setScalar(1.6);
@@ -352,8 +260,6 @@ export class PlayerMesh {
     return gunGroup;
   }
 
-  // World-space position of the gun's muzzle tip, used to spawn paint
-  // splat effects and as the shot's visual origin.
   getGunMuzzleWorldPosition() {
     if (!this.gun) return null;
     const tip = new THREE.Vector3(0, 0, 0.6 * 1.6);
@@ -362,34 +268,25 @@ export class PlayerMesh {
   }
 
   removeGun() {
-    if (!this.gun) return;
-    this.rightElbow.remove(this.gun);
-    this.gun = null;
+    if (this.gun) {
+      this.rightElbow.remove(this.gun);
+      this.gun = null;
+    }
   }
 
-  // Swings arms/legs opposite each other while moving, and returns to the
-  // pose's rest rotation when standing still. Only animates in the
-  // 'standing' pose — locked hiding poses (sit/kneel/lay/curl/crawl) stay
-  // static so they don't fight the pose's own joint targets.
   updateWalkCycle(deltaSeconds, speedFraction) {
     if (this.currentPose !== 'standing') return;
-
     if (speedFraction > 0.02) {
       this._walkCycleTime += deltaSeconds * (4 + speedFraction * 4);
       const swing = Math.sin(this._walkCycleTime) * 0.5 * speedFraction;
       const counterSwing = Math.sin(this._walkCycleTime + Math.PI) * 0.5 * speedFraction;
-
       this.leftShoulder.rotation.x = swing;
       this.rightShoulder.rotation.x = counterSwing;
       this.leftHip.rotation.x = counterSwing;
       this.rightHip.rotation.x = swing;
-      // Knees bend slightly on the forward-swing half of each leg's cycle
-      // so the stride doesn't look like a stiff pendulum.
       this.leftKnee.rotation.x = Math.max(0, -counterSwing) * 1.2;
       this.rightKnee.rotation.x = Math.max(0, -swing) * 1.2;
     } else {
-      // Ease back to rest rather than snapping, avoiding a visible pop
-      // the instant movement input stops.
       const ease = Math.min(1, deltaSeconds * 8);
       this.leftShoulder.rotation.x *= (1 - ease);
       this.rightShoulder.rotation.x *= (1 - ease);
@@ -401,13 +298,8 @@ export class PlayerMesh {
   }
 
   setCrouching(crouching) {
-    if (this.crouching === crouching) return;
     this.crouching = crouching;
-    if (crouching && this.currentPose === 'standing') {
-      this.setPose('kneeling');
-    } else if (!crouching && this.currentPose === 'kneeling') {
-      this.setPose('standing');
-    }
+    // Pose is now managed externally; we just track the flag.
   }
 
   paintAt(u, v, color, brushSize) {
@@ -426,25 +318,14 @@ export class PlayerMesh {
     this.texture.needsUpdate = true;
   }
 
-  setMetalness(value) {
-    this.material.metalness = THREE.MathUtils.clamp(value, 0, 1);
-  }
+  setMetalness(value) { this.material.metalness = THREE.MathUtils.clamp(value, 0, 1); }
+  setRoughness(value) { this.material.roughness = THREE.MathUtils.clamp(value, 0, 1); }
 
-  setRoughness(value) {
-    this.material.roughness = THREE.MathUtils.clamp(value, 0, 1);
-  }
+  getObject3D() { return this.group; }
 
-  getObject3D() {
-    return this.group;
-  }
-
-  // Returns all paintable meshes for raycasting (brush/eyedropper hit-testing),
-  // replacing the old hardcoded [torso, head] pair now that there are more parts.
   getPaintableMeshes() {
     const meshes = [this.torso, this.head];
-    this.hips.traverse((child) => {
-      if (child.isMesh && !meshes.includes(child)) meshes.push(child);
-    });
+    this.hips.traverse((child) => { if (child.isMesh && !meshes.includes(child)) meshes.push(child); });
     return meshes;
   }
 }
