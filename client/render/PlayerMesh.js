@@ -20,7 +20,7 @@ const PROPORTIONS = {
   spineLength: 0.5,
   headRadius: 0.16,
   neckLength: 0.08,
-  shoulderWidth: 0.17,
+  shoulderWidth: 0.25,
   hipWidth: 0.19,
   upperArmLength: 0.32,
   lowerArmLength: 0.28,
