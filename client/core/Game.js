@@ -1,3 +1,4 @@
+
 import * as THREE from 'three';
 import { NetworkClient } from './NetworkClient.js';
 import { MessageType, GamePhase } from './MessageSchema.js';
@@ -52,8 +53,7 @@ class PaintSplatManager {
     sprite.position.copy(position.clone().addScaledVector(normal, 0.02));
     sprite.scale.set(0.3, 0.3, 1);
     this.scene.add(sprite);
-    const startTime = performance.now();
-    this.splats.push({ sprite, startTime });
+    this.splats.push({ sprite, startTime: performance.now() });
   }
   update(now) {
     for (let i = this.splats.length - 1; i >= 0; i--) {
@@ -66,8 +66,7 @@ class PaintSplatManager {
         this.splats.splice(i, 1);
         continue;
       }
-      const alpha = 1 - age / 3;
-      s.sprite.material.opacity = alpha;
+      s.sprite.material.opacity = 1 - age / 3;
       s.sprite.scale.setScalar(0.3 + age * 0.2);
     }
   }
@@ -87,6 +86,7 @@ export class Game {
     this.localMesh = null;
     this.localController = null;
     this.paintSystem = null;
+    this.paintModeEnabled = false;
     this._lastFrameTime = performance.now();
     this._lastNetworkSend = 0;
     this.hud.showLobby();
@@ -124,10 +124,11 @@ export class Game {
       this.hud.showReadyButton();
       this._spawnLocalPlayer();
     });
+
     this.network.on(MessageType.ROOM_ERROR, (payload) => {
       this.hud.setLobbyStatus(`Error: ${payload.reason}`);
     });
-    this.network.on(MessageType.PLAYER_JOINED, () => {});
+
     this.network.on(MessageType.PLAYER_LEFT, (payload) => {
       const remote = this.remotePlayers.get(payload.playerId);
       if (remote) {
@@ -135,34 +136,40 @@ export class Game {
         this.remotePlayers.delete(payload.playerId);
       }
     });
+
     this.network.on(MessageType.ROLE_ASSIGNED, (payload) => {
       this.localRole = payload.role;
       this.hud.setRole(this.localRole);
       this._applyMovementLock();
       this._applyWeaponVisibility();
+      this._syncPaintAvailability();
       if (this.localMesh) {
         if (this.localRole === 'seeker') this.localMesh.attachGun();
         else this.localMesh.removeGun();
       }
     });
+
     this.network.on(MessageType.PHASE_CHANGE, (payload) => {
       this.phase = payload.phase;
       this._onPhaseChange(payload.phase);
       this._applyMovementLock();
       this._applyWeaponVisibility();
+      this._syncPaintAvailability();
     });
+
     this.network.on(MessageType.TIMER_UPDATE, (payload) => {
       this.hud.setTimer(payload.remainingMs);
     });
+
     this.network.on(MessageType.STATE_SYNC, (payload) => {
       this._updateRemotePlayer(payload);
     });
+
     this.network.on(MessageType.PAINT_BROADCAST, (payload) => {
       const remote = this.remotePlayers.get(payload.playerId);
-      if (remote) {
-        this.paintSystem.applyRemoteStroke(remote.mesh, payload.stroke);
-      }
+      if (remote) this.paintSystem.applyRemoteStroke(remote.mesh, payload.stroke);
     });
+
     this.network.on(MessageType.TAG_RESULT, (payload) => {
       if (payload.targetId === this.localPlayerId && payload.success) {
         this.hud.setPhaseBanner('You were tagged!');
@@ -176,6 +183,7 @@ export class Game {
         }
       }
     });
+
     this.network.on(MessageType.ROUND_END, (payload) => {
       this.hud.setPhaseBanner(`Round over: ${payload.reason} (${payload.survivorCount} survived)`);
     });
@@ -185,13 +193,19 @@ export class Game {
     this.localMesh = new PlayerMesh();
     this.sceneManager.scene.add(this.localMesh.getObject3D());
     this.localController = new PlayerController(this.localMesh, this.sceneManager.camera);
-    this._applyMovementLock();
+
+    const spawn = this.sceneManager.getSpawnPoint();
+    this.localController.position.copy(spawn);
+    this.localController.mesh.getObject3D().position.copy(spawn);
+
     this.paintSystem = new PaintSystem(this.sceneManager, this.localMesh, (stroke) => {
       this.network.send(MessageType.PAINT_UPDATE, { stroke });
     });
+
     const metalnessSlider = this.hud.getMetalnessSlider();
     const roughnessSlider = this.hud.getRoughnessSlider();
     this.materialControls = new MaterialControls(this.localMesh, metalnessSlider, roughnessSlider);
+
     this.hud.onToolChange((tool) => this.paintSystem.setTool(tool));
     this.hud.onColorChange((hex) => this.paintSystem.setBrushColor(hex));
     this.hud.onBrushSizeChange((size) => this.paintSystem.setBrushSize(size));
@@ -199,8 +213,32 @@ export class Game {
       this.localMesh.setPose(poseName);
       this.localController.setPoseLocked(poseName !== 'standing');
     });
+    this.hud.bindPaintToggle(() => this._togglePaintMode());
+
     this._bindPaintInput();
     this._bindTouchControls();
+    this._syncPaintAvailability();
+    this._applyMovementLock();
+    this._applyWeaponVisibility();
+  }
+
+  _togglePaintMode() {
+    if (this.localRole !== 'hider') return;
+    this.paintModeEnabled = !this.paintModeEnabled;
+    this.hud.setPaintToggleState(this.paintModeEnabled);
+    this.hud.showPaintToolbar(this.paintModeEnabled);
+  }
+
+  _syncPaintAvailability() {
+    const canPaint = this.localRole === 'hider' && this.phase !== GamePhase.LOBBY;
+    this.hud.showPaintToggle(canPaint);
+    if (!canPaint) {
+      this.paintModeEnabled = false;
+      this.hud.setPaintToggleState(false);
+      this.hud.showPaintToolbar(false);
+    }
+    // keep camera / movement free in all phases
+    this.hud.setLookZoneEnabled(true);
   }
 
   _bindTouchControls() {
@@ -217,15 +255,22 @@ export class Game {
       onCameraToggle: () => this.localController.toggleCameraMode(),
       onShoot: () => this._shoot(),
     });
-    let dragging = false, lastMouseX = 0, lastMouseY = 0;
+
+    let dragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
     this.canvas.addEventListener('mousedown', (e) => {
-      dragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY;
+      dragging = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
     });
     window.addEventListener('mouseup', () => { dragging = false; });
     window.addEventListener('mousemove', (e) => {
       if (!dragging) return;
-      const dx = e.clientX - lastMouseX, dy = e.clientY - lastMouseY;
-      lastMouseX = e.clientX; lastMouseY = e.clientY;
+      const dx = e.clientX - lastMouseX;
+      const dy = e.clientY - lastMouseY;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
       this.localController.addCameraYaw(-dx * 0.005);
       this.localController.addCameraPitch(-dy * 0.005);
     });
@@ -233,17 +278,22 @@ export class Game {
 
   _bindPaintInput() {
     this.canvas.addEventListener('click', (e) => {
-      if (this.phase !== GamePhase.PREP) return;
+      if (!this.localMesh || !this.paintModeEnabled) return;
+      if (this.localRole !== 'hider') return;
+      if (!(this.phase === GamePhase.PREP || this.phase === GamePhase.HUNT)) return;
+
       const ndcX = (e.clientX / window.innerWidth) * 2 - 1;
       const ndcY = -(e.clientY / window.innerHeight) * 2 + 1;
+
       if (this.hud.getActiveTool() === PaintTool.EYEDROPPER) {
-        const hit = this.paintSystem.raycastFromScreen(ndcX, ndcY, this.sceneManager.props, this.sceneManager.camera);
+        const hit = this.paintSystem.raycastFromScreen(ndcX, ndcY, this.sceneManager.interactables || this.sceneManager.props, this.sceneManager.camera);
         if (hit) {
           const sampled = this.paintSystem.sampleColorFromObject(hit.object);
           if (sampled) this.hud.setColorPicker(sampled);
         }
         return;
       }
+
       const selfHit = this.paintSystem.raycastFromScreen(ndcX, ndcY, this.localMesh.getPaintableMeshes(), this.sceneManager.camera);
       if (selfHit && selfHit.uv) {
         this.paintSystem.handlePaintInputOnSelf(selfHit.uv);
@@ -266,12 +316,10 @@ export class Game {
     if (phase === GamePhase.PREP) {
       this.hud.showGameHUD();
       this.hud.setPhaseBanner('Preparation Phase — hide and camouflage!');
-      this.hud.showPaintToolbar(this.localRole === 'hider');
-      this.hud.setLookZoneEnabled(false);
+      this.hud.showPaintToolbar(this.paintModeEnabled && this.localRole === 'hider');
     } else if (phase === GamePhase.HUNT) {
       this.hud.setPhaseBanner('Hunt Phase — seekers are loose!');
-      this.hud.showPaintToolbar(false);
-      this.hud.setLookZoneEnabled(true);
+      this.hud.showPaintToolbar(this.paintModeEnabled && this.localRole === 'hider');
     } else if (phase === GamePhase.END) {
       this.hud.showPaintToolbar(false);
     } else if (phase === GamePhase.LOBBY) {
@@ -303,34 +351,42 @@ export class Game {
   _shoot() {
     if (this.localRole !== 'seeker' || this.phase !== GamePhase.HUNT) return;
     playGunSound();
+
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera({ x: 0, y: 0 }, this.sceneManager.camera);
-    const allTargets = [...this.sceneManager.props];
+    const allTargets = [...(this.sceneManager.interactables || this.sceneManager.props)];
     for (const remote of this.remotePlayers.values()) {
       if (!remote.eliminated) allTargets.push(remote.mesh.getObject3D());
     }
+
     const hits = raycaster.intersectObjects(allTargets, true);
-    let hitPlayer = null, closestDist = Infinity, wallHit = null;
+    let hitPlayer = null;
+    let closestDist = Infinity;
+    let wallHit = null;
+
     for (const hit of hits) {
-      if (hit.distance < closestDist) {
-        let obj = hit.object;
-        while (obj) {
-          for (const [pid, remote] of this.remotePlayers) {
-            if (remote.eliminated) continue;
-            if (remote.mesh.getObject3D() === obj) {
-              hitPlayer = pid;
-              closestDist = hit.distance;
-              break;
-            }
+      if (hit.distance >= closestDist) continue;
+      let obj = hit.object;
+      let foundPlayer = false;
+      while (obj) {
+        for (const [pid, remote] of this.remotePlayers) {
+          if (remote.eliminated) continue;
+          if (remote.mesh.getObject3D() === obj) {
+            hitPlayer = pid;
+            closestDist = hit.distance;
+            foundPlayer = true;
+            break;
           }
-          obj = obj.parent;
         }
-        if (!hitPlayer && hit.distance < closestDist) {
-          wallHit = hit;
-          closestDist = hit.distance;
-        }
+        if (foundPlayer) break;
+        obj = obj.parent;
+      }
+      if (!foundPlayer) {
+        wallHit = hit;
+        closestDist = hit.distance;
       }
     }
+
     this.hud.flashCrosshair(!!hitPlayer);
     if (hitPlayer) {
       this.network.send(MessageType.TAG_ATTEMPT, { targetId: hitPlayer });
@@ -344,41 +400,21 @@ export class Game {
     const now = performance.now();
     const deltaSeconds = Math.min((now - this._lastFrameTime) / 1000, 0.1);
     this._lastFrameTime = now;
+
     this.splatManager.update(now);
+
     if (this.localController) {
-      const colliders = this.sceneManager.props;
+      const colliders = this.sceneManager.collisionProps || this.sceneManager.props;
       this.localController.update(deltaSeconds, colliders);
+
       if (now - this._lastNetworkSend > 1000 / NETWORK_SEND_HZ) {
         this._lastNetworkSend = now;
         this.network.send(MessageType.PLAYER_STATE, this.localController.getState());
       }
-      const targetPos = this.localController.position;
-      const camYaw = this.localController.cameraYaw;
-      const camPitch = this.localController.cameraPitch;
-      const headHeight = 1.6;
-      if (this.localController.cameraMode === 'first') {
-        this.localMesh.getObject3D().visible = false;
-        const camPos = new THREE.Vector3(targetPos.x, targetPos.y + headHeight, targetPos.z);
-        this.sceneManager.camera.position.copy(camPos);
-        const lookDir = new THREE.Vector3(
-          Math.sin(camYaw) * Math.cos(camPitch),
-          Math.sin(camPitch),
-          Math.cos(camYaw) * Math.cos(camPitch)
-        );
-        this.sceneManager.camera.lookAt(camPos.clone().add(lookDir));
-      } else {
-        this.localMesh.getObject3D().visible = true;
-        const distance = 8;
-        const horizontalDist = distance * Math.cos(camPitch);
-        const height = targetPos.y + 4 + distance * Math.sin(camPitch);
-        this.sceneManager.camera.position.set(
-          targetPos.x - Math.sin(camYaw) * horizontalDist,
-          height,
-          targetPos.z - Math.cos(camYaw) * horizontalDist
-        );
-        this.sceneManager.camera.lookAt(targetPos.x, targetPos.y + 1.2, targetPos.z);
-      }
+
+      this.sceneManager.updateCamera(this.localController, deltaSeconds);
     }
+
     this.sceneManager.render();
   };
 }
