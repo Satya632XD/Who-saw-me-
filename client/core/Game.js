@@ -1,4 +1,3 @@
-// Game.js
 import * as THREE from 'three';
 import { NetworkClient } from './NetworkClient.js';
 import { MessageType, GamePhase } from './MessageSchema.js';
@@ -218,20 +217,15 @@ export class Game {
       onCameraToggle: () => this.localController.toggleCameraMode(),
       onShoot: () => this._shoot(),
     });
-    let dragging = false;
-    let lastMouseX = 0, lastMouseY = 0;
+    let dragging = false, lastMouseX = 0, lastMouseY = 0;
     this.canvas.addEventListener('mousedown', (e) => {
-      dragging = true;
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
+      dragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY;
     });
     window.addEventListener('mouseup', () => { dragging = false; });
     window.addEventListener('mousemove', (e) => {
       if (!dragging) return;
-      const dx = e.clientX - lastMouseX;
-      const dy = e.clientY - lastMouseY;
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
+      const dx = e.clientX - lastMouseX, dy = e.clientY - lastMouseY;
+      lastMouseX = e.clientX; lastMouseY = e.clientY;
       this.localController.addCameraYaw(-dx * 0.005);
       this.localController.addCameraPitch(-dy * 0.005);
     });
@@ -243,18 +237,14 @@ export class Game {
       const ndcX = (e.clientX / window.innerWidth) * 2 - 1;
       const ndcY = -(e.clientY / window.innerHeight) * 2 + 1;
       if (this.hud.getActiveTool() === PaintTool.EYEDROPPER) {
-        const hit = this.paintSystem.raycastFromScreen(
-          ndcX, ndcY, this.sceneManager.props, this.sceneManager.camera
-        );
+        const hit = this.paintSystem.raycastFromScreen(ndcX, ndcY, this.sceneManager.props, this.sceneManager.camera);
         if (hit) {
           const sampled = this.paintSystem.sampleColorFromObject(hit.object);
           if (sampled) this.hud.setColorPicker(sampled);
         }
         return;
       }
-      const selfHit = this.paintSystem.raycastFromScreen(
-        ndcX, ndcY, this.localMesh.getPaintableMeshes(), this.sceneManager.camera
-      );
+      const selfHit = this.paintSystem.raycastFromScreen(ndcX, ndcY, this.localMesh.getPaintableMeshes(), this.sceneManager.camera);
       if (selfHit && selfHit.uv) {
         this.paintSystem.handlePaintInputOnSelf(selfHit.uv);
       }
@@ -277,7 +267,7 @@ export class Game {
       this.hud.showGameHUD();
       this.hud.setPhaseBanner('Preparation Phase — hide and camouflage!');
       this.hud.showPaintToolbar(this.localRole === 'hider');
-      this.hud.setLookZoneEnabled(false); // disable look zone so paint taps work
+      this.hud.setLookZoneEnabled(false);
     } else if (phase === GamePhase.HUNT) {
       this.hud.setPhaseBanner('Hunt Phase — seekers are loose!');
       this.hud.showPaintToolbar(false);
@@ -307,6 +297,7 @@ export class Game {
     obj.position.set(payload.position.x, payload.position.y, payload.position.z);
     obj.rotation.y = payload.rotation;
     remote.mesh.setCrouching(payload.crouching);
+    if (payload.pose) remote.mesh.setPose(payload.pose);
   }
 
   _shoot() {
@@ -319,9 +310,7 @@ export class Game {
       if (!remote.eliminated) allTargets.push(remote.mesh.getObject3D());
     }
     const hits = raycaster.intersectObjects(allTargets, true);
-    let hitPlayer = null;
-    let closestDist = Infinity;
-    let wallHit = null;
+    let hitPlayer = null, closestDist = Infinity, wallHit = null;
     for (const hit of hits) {
       if (hit.distance < closestDist) {
         let obj = hit.object;
@@ -344,17 +333,10 @@ export class Game {
     }
     this.hud.flashCrosshair(!!hitPlayer);
     if (hitPlayer) {
-      const remote = this.remotePlayers.get(hitPlayer);
-      if (remote && !remote.eliminated) {
-        this._attemptTag(hitPlayer);
-      }
+      this.network.send(MessageType.TAG_ATTEMPT, { targetId: hitPlayer });
     } else if (wallHit) {
       this.splatManager.spawn(wallHit.point, wallHit.face.normal);
     }
-  }
-
-  _attemptTag(targetPlayerId) {
-    this.network.send(MessageType.TAG_ATTEMPT, { targetId: targetPlayerId });
   }
 
   _loop = () => {
@@ -370,7 +352,6 @@ export class Game {
         this._lastNetworkSend = now;
         this.network.send(MessageType.PLAYER_STATE, this.localController.getState());
       }
-      // Camera update
       const targetPos = this.localController.position;
       const camYaw = this.localController.cameraYaw;
       const camPitch = this.localController.cameraPitch;
