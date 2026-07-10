@@ -23,6 +23,7 @@ export class HUD {
       <button id="jump-btn" style="position:absolute; right:100px; bottom:110px; width:64px; height:64px; border-radius:50%; background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.5); color:white; font-weight:700;">JUMP</button>
       <button id="crouch-btn" style="position:absolute; right:24px; bottom:190px; width:56px; height:56px; border-radius:50%; background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.5); color:white; font-size:11px; font-weight:700;">CROUCH</button>
       <button id="sprint-btn" style="position:absolute; right:24px; bottom:40px; width:56px; height:56px; border-radius:50%; background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.5); color:white; font-size:11px; font-weight:700;">SPRINT</button>
+      <button id="camera-toggle-btn" style="position:absolute; left:24px; top:24px; padding:8px 14px; border-radius:20px; background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.5); color:white; font-size:12px; font-weight:700; pointer-events:auto;">1ST/3RD</button>
     `;
     this.root.appendChild(this.touchControls);
   }
@@ -39,8 +40,8 @@ export class HUD {
   }
 
   // Wires the joystick/look/jump/crouch/sprint UI to a PlayerController-like
-  // callback object: { onMove(x,y), onLookDelta(dx), onJump(), onSprint(active), onCrouch(active) }
-  bindTouchControls({ onMove, onLookDelta, onJump, onSprint, onCrouch }) {
+  // callback object: { onMove(x,y), onLookDelta(dx,dy), onJump(), onSprint(active), onCrouch(active), onCameraToggle() }
+  bindTouchControls({ onMove, onLookDelta, onJump, onSprint, onCrouch, onCameraToggle }) {
     const zone = this.touchControls.querySelector('#joystick-zone');
     const stick = this.touchControls.querySelector('#joystick-stick');
     const lookZone = this.touchControls.querySelector('#look-zone');
@@ -92,10 +93,12 @@ export class HUD {
     // Look/camera drag zone (right side of screen).
     let lookTouchId = null;
     let lastX = 0;
+    let lastY = 0;
     lookZone.addEventListener('touchstart', (e) => {
       const t = e.changedTouches[0];
       lookTouchId = t.identifier;
       lastX = t.clientX;
+      lastY = t.clientY;
       e.preventDefault();
     }, { passive: false });
 
@@ -103,8 +106,10 @@ export class HUD {
       for (const t of e.changedTouches) {
         if (t.identifier !== lookTouchId) continue;
         const dx = t.clientX - lastX;
+        const dy = t.clientY - lastY;
         lastX = t.clientX;
-        onLookDelta(dx);
+        lastY = t.clientY;
+        onLookDelta(dx, dy);
       }
       e.preventDefault();
     }, { passive: false });
@@ -122,6 +127,13 @@ export class HUD {
 
     crouchBtn.addEventListener('touchstart', (e) => { onCrouch(true); e.preventDefault(); }, { passive: false });
     crouchBtn.addEventListener('touchend', (e) => { onCrouch(false); e.preventDefault(); }, { passive: false });
+
+    const cameraToggleBtn = this.touchControls.querySelector('#camera-toggle-btn');
+    cameraToggleBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (onCameraToggle) onCameraToggle();
+    }, { passive: false });
   }
 
   _buildLobbyScreen() {
