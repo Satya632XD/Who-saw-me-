@@ -1,7 +1,4 @@
-// Game.js
-// Top-level orchestrator. Owns the game state machine (lobby/prep/hunt/end),
-// the main render loop, and wires network events to scene/UI updates.
-
+// client/core/Game.js
 import * as THREE from 'three';
 import { NetworkClient } from './NetworkClient.js';
 import { MessageType, GamePhase } from './MessageSchema.js';
@@ -15,18 +12,82 @@ import { HUD } from '../ui/HUD.js';
 const SERVER_URL = window.WHOSAWME_SERVER_URL || 'ws://localhost:8080';
 const NETWORK_SEND_HZ = 15;
 
+// Simple gun sound using Web Audio
+function playGunSound() {
+  if (!playGunSound.audioCtx) {
+    playGunSound.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  const ctx = playGunSound.audioCtx;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(150, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.15);
+  gain.gain.setValueAtTime(0.3, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.15);
+}
+
+class PaintSplatManager {
+  constructor(scene) {
+    this.scene = scene;
+    this.splats = [];
+    this.splatColors = [0x39ff14, 0x00bfff, 0xffdd00, 0xff0066, 0xcc33ff, 0xff4500]; // neon green, blue, yellow, pink, purple, orange
+  }
+  spawn(position, normal) {
+    const color = this.splatColors[Math.floor(Math.random() * this.splatColors.length)];
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createRadialGradient(64, 64, 10, 64, 64, 64);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.9)');
+    gradient.addColorStop(0.3, `#${new THREE.Color(color).getHexString()}`);
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 128, 128);
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.SpriteMaterial({ map: texture, blending: THREE.NormalBlending, depthTest: true, depthWrite: false });
+    const sprite = new THREE.Sprite(material);
+    sprite.position.copy(position.clone().addScaledVector(normal, 0.02));
+    sprite.scale.set(0.3, 0.3, 1);
+    this.scene.add(sprite);
+    const startTime = performance.now();
+    this.splats.push({ sprite, startTime });
+  }
+  update(now) {
+    for (let i = this.splats.length - 1; i >= 0; i--) {
+      const s = this.splats[i];
+      const age = (now - s.startTime) / 1000;
+      if (age > 3) {
+        this.scene.remove(s.sprite);
+        s.sprite.material.map.dispose();
+        s.sprite.material.dispose();
+        this.splats.splice(i, 1);
+        continue;
+      }
+      const alpha = 1 - age / 3;
+      s.sprite.material.opacity = alpha;
+      s.sprite.scale.setScalar(0.3 + age * 0.2);
+    }
+  }
+}
+
 export class Game {
   constructor() {
     this.canvas = document.getElementById('game-canvas');
     this.sceneManager = new SceneManager(this.canvas);
     this.hud = new HUD(document.getElementById('ui-root'));
     this.network = new NetworkClient(SERVER_URL);
+    this.splatManager = new PaintSplatManager(this.sceneManager.scene);
 
     this.localPlayerId = null;
     this.localRole = null;
     this.phase = GamePhase.LOBBY;
 
-    this.remotePlayers = new Map(); // playerId -> { mesh, controllerState }
+    this.remotePlayers = new Map();
     this.localMesh = null;
     this.localController = null;
     this.paintSystem = null;
@@ -74,10 +135,7 @@ export class Game {
       this.hud.setLobbyStatus(`Error: ${payload.reason}`);
     });
 
-    this.network.on(MessageType.PLAYER_JOINED, () => {
-      // Full player_list refresh happens via room_joined on rejoin;
-      // for v1 we just note the count changed.
-    });
+    this.network.on(MessageType.PLAYER_JOINED, () => {});
 
     this.network.on(MessageType.PLAYER_LEFT, (payload) => {
       const remote = this.remotePlayers.get(payload.playerId);
@@ -158,9 +216,6 @@ export class Game {
     this.hud.onBrushSizeChange((size) => this.paintSystem.setBrushSize(size));
     this.hud.onPoseChange((poseName) => {
       this.localMesh.setPose(poseName);
-      // Locking a pose during prep should also freeze normal locomotion
-      // input for standing-only poses so the character doesn't visually
-      // fight the pose while still being able to slide around hidden.
       this.localController.setPoseLocked(poseName !== 'standing');
     });
 
@@ -183,9 +238,6 @@ export class Game {
       onShoot: () => this._shoot(),
     });
 
-    // Desktop/mouse-drag look support, so the same build can be previewed
-    // in a regular browser without touch input. Drag anywhere on the
-    // canvas (outside the paint-click flow) to look around.
     let dragging = false;
     let lastMouseX = 0;
     let lastMouseY = 0;
@@ -209,7 +261,6 @@ export class Game {
   _bindPaintInput() {
     this.canvas.addEventListener('click', (e) => {
       if (this.phase !== GamePhase.PREP) return;
-
       const ndcX = (e.clientX / window.innerWidth) * 2 - 1;
       const ndcY = -(e.clientY / window.innerHeight) * 2 + 1;
 
@@ -233,15 +284,12 @@ export class Game {
     });
   }
 
-  // Seekers are frozen during Prep so hiders can hide undisturbed; every
-  // other role/phase combination allows free movement.
   _applyMovementLock() {
     if (!this.localController) return;
     const shouldLock = this.localRole === 'seeker' && this.phase === GamePhase.PREP;
     this.localController.setMovementLocked(shouldLock);
   }
 
-  // Shoot button + crosshair only make sense for a seeker during Hunt.
   _applyWeaponVisibility() {
     const visible = this.localRole === 'seeker' && this.phase === GamePhase.HUNT;
     this.hud.setWeaponUIVisible(visible);
@@ -252,11 +300,10 @@ export class Game {
       this.hud.showGameHUD();
       this.hud.setPhaseBanner('Preparation Phase — hide and camouflage!');
       this.hud.showPaintToolbar(this.localRole === 'hider');
-      this.hud.setLookZoneEnabled(false);
+      // Keep look zone enabled so camera can still be rotated
     } else if (phase === GamePhase.HUNT) {
       this.hud.setPhaseBanner('Hunt Phase — seekers are loose!');
       this.hud.showPaintToolbar(false);
-      this.hud.setLookZoneEnabled(true);
     } else if (phase === GamePhase.END) {
       this.hud.showPaintToolbar(false);
     } else if (phase === GamePhase.LOBBY) {
@@ -270,13 +317,7 @@ export class Game {
   }
 
   _updateRemotePlayer(payload) {
-    // The server broadcasts state for every player including ourselves;
-    // skip it here since our own mesh is already driven locally by
-    // localController for zero-latency movement. Without this check a
-    // second "ghost" copy of the local player spawns and desyncs from
-    // the real one whenever position updates lag behind local prediction.
     if (payload.playerId === this.localPlayerId) return;
-
     let remote = this.remotePlayers.get(payload.playerId);
     if (!remote) {
       const mesh = new PlayerMesh();
@@ -295,30 +336,52 @@ export class Game {
     this.network.send(MessageType.TAG_ATTEMPT, { targetId: targetPlayerId });
   }
 
-  // Fires the seeker's paintball gun: raycasts from screen center outward
-  // and, on hitting a live remote player's mesh, sends a tag attempt. The
-  // server re-validates range authoritatively, so this only needs to be
-  // roughly accurate — it can't be spoofed into an actual elimination.
   _shoot() {
     if (this.localRole !== 'seeker' || this.phase !== GamePhase.HUNT) return;
+    playGunSound();
 
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera({ x: 0, y: 0 }, this.sceneManager.camera);
 
-    let closestHit = null;
+    // Gather all interactable meshes: props + remote player meshes
+    const allTargets = [...this.sceneManager.props];
+    for (const remote of this.remotePlayers.values()) {
+      if (!remote.eliminated) allTargets.push(remote.mesh.getObject3D());
+    }
+    const hits = raycaster.intersectObjects(allTargets, true);
+
+    let hitPlayer = null;
     let closestDist = Infinity;
-    for (const [playerId, remote] of this.remotePlayers) {
-      if (remote.eliminated) continue;
-      const hits = raycaster.intersectObject(remote.mesh.getObject3D(), true);
-      if (hits.length > 0 && hits[0].distance < closestDist) {
-        closestDist = hits[0].distance;
-        closestHit = playerId;
+    let wallHit = null;
+
+    for (const hit of hits) {
+      if (hit.distance < closestDist) {
+        // Check if hit a remote player (any part)
+        let obj = hit.object;
+        while (obj) {
+          for (const [pid, remote] of this.remotePlayers) {
+            if (remote.eliminated) continue;
+            if (remote.mesh.getObject3D() === obj) {
+              hitPlayer = pid;
+              closestDist = hit.distance;
+              break;
+            }
+          }
+          obj = obj.parent;
+        }
+        if (!hitPlayer && hit.distance < closestDist) {
+          wallHit = hit;
+          closestDist = hit.distance;
+        }
       }
     }
 
-    this.hud.flashCrosshair(!!closestHit);
-    if (closestHit) {
-      this._attemptTag(closestHit);
+    this.hud.flashCrosshair(!!hitPlayer);
+    if (hitPlayer) {
+      this._attemptTag(hitPlayer);
+    } else if (wallHit) {
+      // Paint splatter on world surface
+      this.splatManager.spawn(wallHit.point, wallHit.face.normal);
     }
   }
 
@@ -327,6 +390,8 @@ export class Game {
     const now = performance.now();
     const deltaSeconds = Math.min((now - this._lastFrameTime) / 1000, 0.1);
     this._lastFrameTime = now;
+
+    this.splatManager.update(now);
 
     if (this.localController) {
       const colliders = this.sceneManager.props;
@@ -337,17 +402,12 @@ export class Game {
         this.network.send(MessageType.PLAYER_STATE, this.localController.getState());
       }
 
-      // Camera follow: third-person orbits behind+above the character;
-      // first-person sits at head height and looks wherever yaw/pitch point.
       const targetPos = this.localController.position;
       const yaw = this.localController.yaw;
       const pitch = this.localController.pitch;
       const headHeight = 1.6;
 
       if (this.localController.cameraMode === 'first') {
-        // Hiding the local mesh in first-person also removes it from
-        // raycasts, so self-painting (Prep phase) should be done in
-        // third-person. This matches most FPS games' convention.
         this.localMesh.getObject3D().visible = false;
         const camPos = new THREE.Vector3(targetPos.x, targetPos.y + headHeight, targetPos.z);
         this.sceneManager.camera.position.copy(camPos);
@@ -360,8 +420,6 @@ export class Game {
       } else {
         this.localMesh.getObject3D().visible = true;
         const distance = 8;
-        // Pitch pulls the camera up/down and in/out along the orbit so
-        // looking up tilts the view up instead of just spinning flatly.
         const horizontalDist = distance * Math.cos(pitch);
         const height = targetPos.y + 4 + distance * Math.sin(pitch);
         this.sceneManager.camera.position.set(
