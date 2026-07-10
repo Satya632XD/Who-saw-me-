@@ -1,3 +1,4 @@
+
 import * as THREE from 'three';
 
 const WALK_SPEED = 4.0;
@@ -56,6 +57,7 @@ export class PlayerController {
     this.touchMoveVector.y = y;
     this.touchActive = (x !== 0 || y !== 0);
   }
+
   setTouchJump() { this.keys.jump = true; }
   setTouchSprint(active) { this.keys.sprint = active; }
   setTouchCrouch(active) { this.keys.crouch = active; }
@@ -74,7 +76,6 @@ export class PlayerController {
   update(deltaSeconds, colliders = []) {
     const speed = this.keys.crouch ? CROUCH_SPEED : this.keys.sprint ? SPRINT_SPEED : WALK_SPEED;
 
-    // Movement relative to camera yaw
     const forward = new THREE.Vector3(Math.sin(this.cameraYaw), 0, Math.cos(this.cameraYaw));
     const right = new THREE.Vector3(Math.cos(this.cameraYaw), 0, -Math.sin(this.cameraYaw));
 
@@ -96,8 +97,14 @@ export class PlayerController {
       const nextPosition = this.position.clone().add(moveDir);
       if (!this._collides(nextPosition, colliders)) {
         this.position.copy(nextPosition);
+      } else {
+        const tryX = this.position.clone().add(new THREE.Vector3(moveDir.x, 0, 0));
+        const tryZ = this.position.clone().add(new THREE.Vector3(0, 0, moveDir.z));
+        if (!this._collides(tryX, colliders)) this.position.x = tryX.x;
+        if (!this._collides(tryZ, colliders)) this.position.z = tryZ.z;
       }
     }
+
     this.mesh.updateWalkCycle(deltaSeconds, wasMoving ? speed / SPRINT_SPEED : 0);
 
     if (this.isGrounded && this.keys.jump && !this.movementLocked) {
@@ -117,21 +124,22 @@ export class PlayerController {
     if (!this.poseLocked) {
       this.mesh.setCrouching(this.keys.crouch);
       this.currentPose = this.keys.crouch ? 'kneeling' : 'standing';
-    } else {
-      // Keep the pose locked; don't change
     }
+
     this.mesh.getObject3D().position.copy(this.position);
-    // Face the direction of movement, or keep looking where camera points if still
     const targetYaw = wasMoving ? Math.atan2(moveDir.x, moveDir.z) : this.cameraYaw;
     this.mesh.getObject3D().rotation.y = targetYaw;
   }
 
   _collides(nextPosition, colliders) {
-    const radius = 0.4;
-    for (const box of colliders) {
-      const bbox = new THREE.Box3().setFromObject(box);
-      bbox.expandByScalar(radius);
-      if (bbox.containsPoint(nextPosition)) return true;
+    const radius = 0.35;
+    const heightPad = 0.65;
+    for (const obj of colliders) {
+      if (!obj) continue;
+      const bounds = obj.userData && obj.userData.bounds ? obj.userData.bounds : new THREE.Box3().setFromObject(obj);
+      const expanded = bounds.clone().expandByScalar(radius);
+      if (nextPosition.y < expanded.min.y - heightPad || nextPosition.y > expanded.max.y + heightPad) continue;
+      if (expanded.containsPoint(nextPosition)) return true;
     }
     return false;
   }
